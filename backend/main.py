@@ -1,4 +1,6 @@
-from datetime import datetime, timezone
+import time
+from contextlib import asynccontextmanager
+from datetime import date, datetime, timezone
 from urllib.parse import urlparse
 
 from bson import ObjectId
@@ -8,11 +10,49 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pymongo.errors import ConnectionFailure
 
-from database import get_db
-from models import PricePoint, ProductCreate, ProductOut
+from analytics import (
+    build_budget_plan,
+    build_drop_report,
+    build_insights,
+    to_naive_utc,
+)
+from database import get_db, init_db
+from models import (
+    BudgetSet,
+    PricePoint,
+    ProductCreate,
+    ProductOut,
+    SaleEventCreate,
+    SaleEventOut,
+)
 
-app = FastAPI(title="Smart Price Tracker API")
+
+def init_db_with_retry(attempts: int = 5, delay: int = 3) -> None:
+    # In docker-compose the backend can start before MongoDB is ready,
+    # so retry a few times before giving up.
+    for attempt in range(1, attempts + 1):
+        try:
+            init_db(get_db())
+            print("MongoDB ready: collections and indexes ensured.")
+            return
+        except ConnectionFailure:
+            print(f"MongoDB not reachable (attempt {attempt}/{attempts}), retrying...")
+            time.sleep(delay)
+        except Exception as exc:  # e.g. MONGO_URI not set
+            print(f"MongoDB setup failed: {exc}")
+            return
+    print("WARNING: MongoDB still unreachable. Requests will return 503 until it is up.")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db_with_retry()
+    yield
+
+
+app = FastAPI(title="Smart Price Tracker API", lifespan=lifespan)
 
 # Lets the React frontend (Vite = 5173, CRA = 3000) call this API
 app.add_middleware(
@@ -32,11 +72,16 @@ async def validation_error_handler(request, exc):
     )
 
 
+@app.exception_handler(ConnectionFailure)
+async def database_down_handler(request, exc):
+    return JSONResponse(status_code=503, content={"detail": "Database unavailable"})
+
+
 def to_object_id(id_str: str) -> ObjectId:
     try:
         return ObjectId(id_str)
     except (InvalidId, TypeError):
-        raise HTTPException(status_code=400, detail="Invalid product id")
+        raise HTTPException(status_code=400, detail="Invalid id")
 
 
 def detect_site(url: str) -> str:
@@ -46,6 +91,10 @@ def detect_site(url: str) -> str:
     if "flipkart" in host:
         return "flipkart"
     return "other"
+
+
+def day_to_datetime(d: date) -> datetime:
+    return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
 
 
 def serialize(doc: dict) -> ProductOut:
@@ -62,11 +111,30 @@ def serialize(doc: dict) -> ProductOut:
     )
 
 
+def serialize_event(doc: dict) -> SaleEventOut:
+    return SaleEventOut(
+        id=str(doc["_id"]),
+        name=doc["name"],
+        start_date=to_naive_utc(doc["start_date"]).date(),
+        end_date=to_naive_utc(doc["end_date"]).date(),
+    )
+
+
+def get_product_or_404(db, product_id: str) -> dict:
+    doc = db.products.find_one({"_id": to_object_id(product_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return doc
+
+
+# ---------------------------------------------------------------- health
 @app.get("/health")
-def health():
-    return {"status": "ok"}
+def health(db=Depends(get_db)):
+    db.command("ping")  # raises ConnectionFailure -> 503 if MongoDB is down
+    return {"status": "ok", "database": "connected"}
 
 
+# ------------------------------------------------- core product endpoints
 @app.post("/products", response_model=ProductOut, status_code=201)
 def add_product(payload: ProductCreate, db=Depends(get_db)):
     url = str(payload.product_url)
@@ -93,18 +161,13 @@ def list_products(db=Depends(get_db)):
 
 @app.get("/products/{product_id}", response_model=ProductOut)
 def get_product(product_id: str, db=Depends(get_db)):
-    doc = db.products.find_one({"_id": to_object_id(product_id)})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Product not found")
-    return serialize(doc)
+    return serialize(get_product_or_404(db, product_id))
 
 
 @app.get("/products/{product_id}/history", response_model=list[PricePoint])
 def get_history(product_id: str, db=Depends(get_db)):
-    oid = to_object_id(product_id)
-    if not db.products.find_one({"_id": oid}):
-        raise HTTPException(status_code=404, detail="Product not found")
-    rows = db.price_history.find({"product_id": oid}).sort("checked_at", 1)
+    product = get_product_or_404(db, product_id)
+    rows = db.price_history.find({"product_id": product["_id"]}).sort("checked_at", 1)
     return [PricePoint(price=r["price"], checked_at=r["checked_at"]) for r in rows]
 
 
@@ -116,3 +179,103 @@ def delete_product(product_id: str, db=Depends(get_db)):
         raise HTTPException(status_code=404, detail="Product not found")
     db.price_history.delete_many({"product_id": oid})  # clean up its history too
     return {"message": "Product removed from tracking"}
+
+
+# ------------------------------- feature 2: best time to buy (insights)
+@app.get("/products/{product_id}/insights")
+def get_insights(product_id: str, db=Depends(get_db)):
+    product = get_product_or_404(db, product_id)
+    history = list(db.price_history.find({"product_id": product["_id"]}))
+    events = list(db.sale_events.find())
+    return {
+        "product_id": product_id,
+        "product_name": product.get("product_name"),
+        **build_insights(history, events),
+    }
+
+
+# --------------------------------- feature 6: sale-event / drop tracker
+@app.get("/products/{product_id}/drops")
+def get_drops(product_id: str, db=Depends(get_db)):
+    product = get_product_or_404(db, product_id)
+    history = list(db.price_history.find({"product_id": product["_id"]}))
+    events = list(db.sale_events.find())
+    return {
+        "product_id": product_id,
+        "product_name": product.get("product_name"),
+        **build_drop_report(history, events),
+    }
+
+
+@app.get("/sale-events", response_model=list[SaleEventOut])
+def list_sale_events(db=Depends(get_db)):
+    return [serialize_event(e) for e in db.sale_events.find().sort("start_date", 1)]
+
+
+@app.post("/sale-events", response_model=SaleEventOut, status_code=201)
+def add_sale_event(payload: SaleEventCreate, db=Depends(get_db)):
+    doc = {
+        "name": payload.name,
+        "start_date": day_to_datetime(payload.start_date),
+        "end_date": day_to_datetime(payload.end_date),
+    }
+    result = db.sale_events.insert_one(doc)
+    doc["_id"] = result.inserted_id
+    return serialize_event(doc)
+
+
+@app.delete("/sale-events/{event_id}")
+def delete_sale_event(event_id: str, db=Depends(get_db)):
+    result = db.sale_events.delete_one({"_id": to_object_id(event_id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Sale event not found")
+    return {"message": "Sale event removed"}
+
+
+# ---------------------------------------- feature 7: budget-based tracking
+@app.put("/budget")
+def set_budget(payload: BudgetSet, db=Depends(get_db)):
+    db.budgets.update_one(
+        {"user_id": payload.user_id},
+        {
+            "$set": {
+                "monthly_budget": payload.monthly_budget,
+                "spent_this_month": payload.spent_this_month,
+                "updated_at": datetime.now(timezone.utc),
+            }
+        },
+        upsert=True,
+    )
+    return {
+        "user_id": payload.user_id,
+        "monthly_budget": payload.monthly_budget,
+        "spent_this_month": payload.spent_this_month,
+    }
+
+
+@app.get("/budget")
+def get_budget_plan(user_id: str = "demo-user", db=Depends(get_db)):
+    budget = db.budgets.find_one({"user_id": user_id})
+    if not budget:
+        raise HTTPException(
+            status_code=404, detail="No budget set. Use PUT /budget first."
+        )
+
+    products = list(db.products.find({"user_id": user_id}))
+    ids = [p["_id"] for p in products]
+    averages = {
+        row["_id"]: row["avg"]
+        for row in db.price_history.aggregate(
+            [
+                {"$match": {"product_id": {"$in": ids}}},
+                {"$group": {"_id": "$product_id", "avg": {"$avg": "$price"}}},
+            ]
+        )
+    }
+    plan = build_budget_plan(
+        budget["monthly_budget"],
+        budget.get("spent_this_month", 0.0),
+        products,
+        averages,
+    )
+    return {"user_id": user_id, **plan}
