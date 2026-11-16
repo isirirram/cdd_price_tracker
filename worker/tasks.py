@@ -1,3 +1,4 @@
+
 from datetime import datetime, timezone
 from bson import ObjectId
 
@@ -7,7 +8,7 @@ from database import (
     price_history_collection
 )
 from scraper_adapter import get_scraper_result
-from notifications import send_telegram_alert
+from notifications import send_email_alert
 
 
 @celery_app.task(name="tasks.check_price")
@@ -24,6 +25,9 @@ def check_price(product_id, simulated_price=None):
     product_name = product["product_name"]
     product_url = product["product_url"]
     target_price = float(product["target_price"])
+
+    # Get the user's email address
+    user_email = product.get("user_email")
 
     # Get current price and retention permission
     if simulated_price is not None:
@@ -50,7 +54,7 @@ def check_price(product_id, simulated_price=None):
     if current_price <= 0:
         raise ValueError("Invalid product price")
 
-    # Save history only when permitted
+    # Save price history
     if allow_history:
         price_history_collection.insert_one({
             "product_id": ObjectId(product_id),
@@ -70,7 +74,14 @@ def check_price(product_id, simulated_price=None):
     if current_price <= target_price:
 
         if not alert_sent:
-            send_telegram_alert(
+
+            if not user_email:
+                raise ValueError(
+                    "User email is missing for this product"
+                )
+
+            send_email_alert(
+                user_email,
                 product_name,
                 current_price,
                 target_price
@@ -81,7 +92,7 @@ def check_price(product_id, simulated_price=None):
                 {"$set": {"alert_sent": True}}
             )
 
-            return "Price drop alert sent!"
+            return "Price drop email sent!"
 
         return "Alert already sent"
 
