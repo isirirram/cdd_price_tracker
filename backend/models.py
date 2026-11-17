@@ -4,11 +4,16 @@ from typing import Optional
 from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 
+EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+
+
 class ProductCreate(BaseModel):
     product_url: HttpUrl
     target_price: float = Field(gt=0)
     product_name: Optional[str] = None
     user_id: str = "demo-user"
+    # Where the price-drop email goes. Optional: falls back to ALERT_EMAIL_TO.
+    alert_email: Optional[str] = Field(default=None, pattern=EMAIL_PATTERN)
 
 
 class ProductOut(BaseModel):
@@ -20,7 +25,10 @@ class ProductOut(BaseModel):
     target_price: float
     current_price: Optional[float] = None
     alert_sent: bool = False
+    alert_email: Optional[str] = None
     created_at: datetime
+    last_checked_at: Optional[datetime] = None
+    last_error: Optional[str] = None
 
 
 class PricePoint(BaseModel):

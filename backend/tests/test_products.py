@@ -100,3 +100,45 @@ def test_delete_product(client):
 
 def test_delete_not_found(client):
     assert client.delete(f"/products/{MISSING_ID}").status_code == 404
+
+# ------------------------------------------------ email + "check now" tests
+def test_add_product_with_alert_email(client):
+    r = client.post("/products", json={**VALID, "alert_email": "me@example.com"})
+    assert r.status_code == 201
+    assert r.json()["alert_email"] == "me@example.com"
+    assert r.json()["last_error"] is None
+
+
+def test_add_product_bad_email(client):
+    r = client.post("/products", json={**VALID, "alert_email": "not-an-email"})
+    assert r.status_code == 400
+
+
+def test_add_product_queues_first_check(client, monkeypatch):
+    import main
+
+    queued = []
+    monkeypatch.setattr(main, "queue_price_check", lambda pid: queued.append(pid) or True)
+    pid = client.post("/products", json=VALID).json()["id"]
+    assert queued == [pid]
+
+
+def test_check_now_queues_task(client, monkeypatch):
+    import main
+
+    monkeypatch.setattr(main, "queue_price_check", lambda pid: True)
+    pid = client.post("/products", json=VALID).json()["id"]
+    r = client.post(f"/products/{pid}/check")
+    assert r.status_code == 202
+
+
+def test_check_now_without_worker_returns_503(client, monkeypatch):
+    import main
+
+    monkeypatch.setattr(main, "queue_price_check", lambda pid: False)
+    pid = client.post("/products", json=VALID).json()["id"]
+    assert client.post(f"/products/{pid}/check").status_code == 503
+
+
+def test_check_now_missing_product(client):
+    assert client.post(f"/products/{MISSING_ID}/check").status_code == 404

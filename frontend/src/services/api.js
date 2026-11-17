@@ -17,7 +17,12 @@ async function apiRequest(endpoint, options = {}) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.detail || "Something went wrong");
+    // Validation errors come back as {detail: "Invalid input", errors: [...]}
+    const firstError = data.errors?.[0];
+    const message = firstError
+      ? `${firstError.loc?.slice(-1)[0]}: ${firstError.msg}`
+      : data.detail;
+    throw new Error(message || "Something went wrong");
   }
 
   return data;
@@ -42,6 +47,13 @@ export function addProduct(product) {
 export function deleteProduct(id) {
   return apiRequest(`/products/${id}`, {
     method: "DELETE",
+  });
+}
+
+// Ask the worker to re-check this product's price right now
+export function checkProductNow(id) {
+  return apiRequest(`/products/${id}/check`, {
+    method: "POST",
   });
 }
 

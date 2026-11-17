@@ -1,6 +1,13 @@
-
 import { useEffect, useState } from "react";
-import { getProducts, deleteProduct } from "../services/api";
+import {
+  getProducts,
+  addProduct,
+  deleteProduct,
+  checkProductNow,
+} from "../services/api";
+import Header from "./Header";
+import AddProduct from "./AddProduct";
+import ProductCard from "./ProductCard";
 
 function ProductList({ onNavigate }) {
   const [products, setProducts] = useState([]);
@@ -8,37 +15,59 @@ function ProductList({ onNavigate }) {
   const [siteFilter, setSiteFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [checkingId, setCheckingId] = useState(null);
 
-  const fetchProducts = async () => {
+  // Only sets state after the request finishes (keeps the linter happy)
+  const loadProducts = () =>
+    getProducts()
+      .then((data) => {
+        setProducts(data);
+        setError("");
+      })
+      .catch((err) => setError(err.message || "Unable to load products."))
+      .finally(() => setLoading(false));
+
+  useEffect(() => {
+    loadProducts();
+  }, []);
+
+  const handleRetry = () => {
+    setLoading(true);
+    loadProducts();
+  };
+
+  const handleAdd = async (product) => {
+    // Errors are shown inside the AddProduct form
+    const created = await addProduct(product);
+    setProducts((previous) => [created, ...previous]);
+    setShowAddForm(false);
+
+    // The worker fetches the first price in the background; refresh shortly
+    setTimeout(loadProducts, 4000);
+  };
+
+  const handleCheckNow = async (id) => {
     try {
-      setLoading(true);
-      setError("");
-
-      const data = await getProducts();
-      setProducts(data);
+      setCheckingId(id);
+      await checkProductNow(id);
+      // give the worker a moment, then reload the new price
+      setTimeout(() => {
+        loadProducts();
+        setCheckingId(null);
+      }, 3000);
     } catch (err) {
-      setError(err.message || "Unable to load products.");
-    } finally {
-      setLoading(false);
+      setCheckingId(null);
+      alert(err.message || "Unable to check price.");
     }
   };
 
-  useEffect(() => {
-    fetchProducts();
-  }, []);
-
   const handleDelete = async (id) => {
-    const confirmDelete = window.confirm(
-      "Are you sure you want to remove this product?"
-    );
-
-    if (!confirmDelete) return;
+    if (!window.confirm("Are you sure you want to remove this product?")) return;
 
     try {
       await deleteProduct(id);
-      setProducts((previous) =>
-        previous.filter((product) => product.id !== id)
-      );
+      setProducts((previous) => previous.filter((p) => p.id !== id));
     } catch (err) {
       alert(err.message || "Unable to delete product.");
     }
@@ -49,31 +78,27 @@ function ProductList({ onNavigate }) {
       ?.toLowerCase()
       .includes(search.toLowerCase());
 
-    const matchesSite =
-      siteFilter === "All" || product.site === siteFilter;
+    const matchesSite = siteFilter === "All" || product.site === siteFilter;
 
     return matchesSearch && matchesSite;
   });
 
   return (
     <div className="dashboard-page">
-      <header className="navbar">
-        <h1 className="logo">PRICE TRACKER</h1>
-
-        <nav>
-          <span onClick={() => onNavigate("dashboard")}>Dashboard</span>
-          <span onClick={() => onNavigate("products")}>My Products</span>
-          <span onClick={() => onNavigate("history")}>Price History</span>
-          <span onClick={() => onNavigate("profile")}>Profile</span>
-          <span onClick={() => onNavigate("budget")}>Budget Tracker</span>
-        </nav>
-      </header>
+      <Header onNavigate={onNavigate} active="products" />
 
       <main className="products-page">
         <div className="welcome-section">
           <h2>My Products</h2>
           <p>Manage and track all your products in one place.</p>
         </div>
+
+        {showAddForm && (
+          <AddProduct
+            onAddProduct={handleAdd}
+            onCancel={() => setShowAddForm(false)}
+          />
+        )}
 
         <div className="product-controls">
           <input
@@ -97,7 +122,7 @@ function ProductList({ onNavigate }) {
 
           <button
             className="add-product-button"
-            onClick={() => alert("We'll connect Add Product next!")}
+            onClick={() => setShowAddForm(true)}
           >
             + Add Product
           </button>
@@ -108,7 +133,7 @@ function ProductList({ onNavigate }) {
         {error && (
           <div>
             <p>{error}</p>
-            <button onClick={fetchProducts}>Try Again</button>
+            <button onClick={handleRetry}>Try Again</button>
           </div>
         )}
 
@@ -126,47 +151,14 @@ function ProductList({ onNavigate }) {
             ) : (
               <div className="product-grid">
                 {filteredProducts.map((product) => (
-                  <div className="product-card" key={product.id}>
-                    <div className="product-image">
-                      <span style={{ fontSize: "55px" }}>🛍️</span>
-                    </div>
-
-                    <div className="product-info">
-                      <p className="product-category">
-                        {product.site?.toUpperCase()}
-                      </p>
-
-                      <h3>{product.product_name}</h3>
-
-                      <p>
-                        Current Price:{" "}
-                        <strong>
-                          {product.current_price != null
-                            ? `₹${product.current_price}`
-                            : "Not checked yet"}
-                        </strong>
-                      </p>
-
-                      <p>
-                        Target Price:{" "}
-                        <strong>₹{product.target_price}</strong>
-                      </p>
-
-                      <button
-                        className="view-history-button"
-                        onClick={() => onNavigate("history")}
-                      >
-                        View Price History
-                      </button>
-
-                      <button
-                        className="add-product-button"
-                        onClick={() => handleDelete(product.id)}
-                      >
-                        Remove Product
-                      </button>
-                    </div>
-                  </div>
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    checking={checkingId === product.id}
+                    onViewHistory={() => onNavigate("history", product.id)}
+                    onCheckNow={() => handleCheckNow(product.id)}
+                    onDelete={() => handleDelete(product.id)}
+                  />
                 ))}
               </div>
             )}

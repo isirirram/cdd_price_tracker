@@ -1,18 +1,9 @@
+import Header from "./Header";
 
 function Profile({ onNavigate }) {
   return (
     <div className="dashboard-page">
-      <header className="navbar">
-        <h1 className="logo">PRICE TRACKER</h1>
-
-        <nav>
-          <span onClick={() => onNavigate("dashboard")}>Dashboard</span>
-          <span onClick={() => onNavigate("products")}>My Products</span>
-          <span onClick={() => onNavigate("history")}>Price History</span>
-          <span onClick={() => onNavigate("profile")}>Profile</span>
-          <span onClick={() => onNavigate("budget")}>Budget Tracker</span>
-        </nav>
-      </header>
+      <Header onNavigate={onNavigate} active="profile" />
 
       <main className="dashboard-content">
         <section className="welcome-section">

@@ -1,3 +1,4 @@
+import os
 import time
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
@@ -27,6 +28,7 @@ from models import (
     SaleEventCreate,
     SaleEventOut,
 )
+from task_queue import queue_price_check
 
 
 def init_db_with_retry(attempts: int = 5, delay: int = 3) -> None:
@@ -54,10 +56,21 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Smart Price Tracker API", lifespan=lifespan)
 
-# Lets the React frontend (Vite = 5173, CRA = 3000) call this API
+# Lets the React frontend (Vite dev = 5173, Docker/nginx = 3000) call this API.
+# Browsers treat localhost and 127.0.0.1 as different origins, so allow both.
+# Extra origins (e.g. a teammate's laptop IP at the expo) can be added with
+# CORS_ORIGINS=http://192.168.1.20:3000,http://...
+DEFAULT_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+EXTRA_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=DEFAULT_ORIGINS + EXTRA_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -107,7 +120,10 @@ def serialize(doc: dict) -> ProductOut:
         target_price=doc["target_price"],
         current_price=doc.get("current_price"),
         alert_sent=doc.get("alert_sent", False),
+        alert_email=doc.get("alert_email"),
         created_at=doc["created_at"],
+        last_checked_at=doc.get("last_checked_at"),
+        last_error=doc.get("last_error"),
     )
 
 
@@ -146,10 +162,13 @@ def add_product(payload: ProductCreate, db=Depends(get_db)):
         "target_price": payload.target_price,
         "current_price": None,
         "alert_sent": False,
+        "alert_email": payload.alert_email,
         "created_at": datetime.now(timezone.utc),
     }
     result = db.products.insert_one(doc)
     doc["_id"] = result.inserted_id
+    # Get the first price now instead of waiting for the next scheduled run
+    queue_price_check(str(result.inserted_id))
     return serialize(doc)
 
 
@@ -169,6 +188,18 @@ def get_history(product_id: str, db=Depends(get_db)):
     product = get_product_or_404(db, product_id)
     rows = db.price_history.find({"product_id": product["_id"]}).sort("checked_at", 1)
     return [PricePoint(price=r["price"], checked_at=r["checked_at"]) for r in rows]
+
+
+@app.post("/products/{product_id}/check", status_code=202)
+def check_now(product_id: str, db=Depends(get_db)):
+    """'Check now' button: ask the worker to re-check this product immediately."""
+    product = get_product_or_404(db, product_id)
+    if not queue_price_check(str(product["_id"])):
+        raise HTTPException(
+            status_code=503,
+            detail="Price checker is not running (REDIS_URL not set or Redis is down)",
+        )
+    return {"message": "Price check queued", "product_id": product_id}
 
 
 @app.delete("/products/{product_id}")

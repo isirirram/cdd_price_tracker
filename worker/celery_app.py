@@ -27,11 +27,14 @@ celery_app.conf.update(
     result_serializer="json",
 )
 
-# Automatic checks every 6 hours
+# Automatic checks. Default every 6 hours; for the expo demo set
+# CHECK_INTERVAL_SECONDS=60 in .env so price changes show up within a minute.
+CHECK_INTERVAL_SECONDS = float(os.getenv("CHECK_INTERVAL_SECONDS", "21600"))
+
 celery_app.conf.beat_schedule = {
-    "check-products-every-6-hours": {
+    "check-all-products": {
         "task": "tasks.enqueue_all_products",
-        "schedule": 21600.0,
+        "schedule": CHECK_INTERVAL_SECONDS,
     }
 }
 

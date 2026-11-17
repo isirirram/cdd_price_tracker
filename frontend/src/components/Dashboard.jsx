@@ -1,41 +1,34 @@
+import { useEffect, useState } from "react";
+import { getProducts } from "../services/api";
+import Header from "./Header";
+import ProductCard from "./ProductCard";
 
 function Dashboard({ onNavigate }) {
-  const products = [
-    {
-      name: "Wireless Headphones",
-      image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500",
-      currentPrice: "1,499",
-      targetPrice: "1,200",
-      status: "Price Drop Expected",
-    },
-    {
-      name: "Smart Watch",
-      image: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500",
-      currentPrice: "2,499",
-      targetPrice: "2,000",
-      status: "Tracking",
-    },
-    {
-      name: "Laptop",
-      image: "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=500",
-      currentPrice: "45,999",
-      targetPrice: "42,000",
-      status: "Tracking",
-    },
-  ];
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    getProducts()
+      .then(setProducts)
+      .catch((err) => setError(err.message || "Unable to load products."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Real numbers from the API instead of hardcoded ones
+  const priced = products.filter((p) => p.current_price != null);
+  const atTarget = priced.filter((p) => p.current_price <= p.target_price);
+  const alertsSent = products.filter((p) => p.alert_sent);
+
+  // Most recently checked products first
+  const recent = [...priced]
+    .filter((p) => p.last_checked_at)
+    .sort((a, b) => new Date(b.last_checked_at) - new Date(a.last_checked_at))
+    .slice(0, 5);
 
   return (
     <div className="dashboard-page">
-      <header className="navbar">
-        <h1 className="logo">PRICE TRACKER</h1>
-        <nav>
-  <span onClick={() => onNavigate("dashboard")}>Dashboard</span>
-  <span onClick={() => onNavigate("products")}>My Products</span>
-  <span onClick={() => onNavigate("history")}>Price History</span>
-  <span onClick={() => onNavigate("budget")}>Budget Tracker</span>
-  <span onClick={() => onNavigate("profile")}>Profile</span>
-</nav>
-      </header>
+      <Header onNavigate={onNavigate} active="dashboard" />
 
       <main className="dashboard-content">
         <section className="welcome-section">
@@ -43,49 +36,42 @@ function Dashboard({ onNavigate }) {
           <p>Track prices, discover deals and save money on your favourite products</p>
         </section>
 
+        {error && <p style={{ color: "#E35336" }}>{error}</p>}
+
         <section className="stats-container">
           <div className="stat-card">
             <h3>Tracked Products</h3>
-            <h2>12</h2>
+            <h2>{loading ? "…" : products.length}</h2>
           </div>
           <div className="stat-card">
-            <h3>Price Drops</h3>
-            <h2>3</h2>
+            <h3>At / Below Target</h3>
+            <h2>{loading ? "…" : atTarget.length}</h2>
           </div>
           <div className="stat-card">
-            <h3>Alerts</h3>
-            <h2>5</h2>
+            <h3>Alerts Sent</h3>
+            <h2>{loading ? "…" : alertsSent.length}</h2>
           </div>
         </section>
 
         <section className="tracked-section">
           <div className="section-heading">
             <h2>Your Tracked Products</h2>
-            <button onClick={() => onNavigate("products")}>
-              + Add Product
-            </button>
+            <button onClick={() => onNavigate("products")}>+ Add Product</button>
           </div>
 
-          <div className="product-container">
-            {products.map((product, index) => (
-              <div className="product-card" key={index}>
-                <img
-                  src={product.image}
-                  alt={product.name}
-                  className="product-image"
+          {!loading && products.length === 0 ? (
+            <p>You aren't tracking anything yet. Add your first product!</p>
+          ) : (
+            <div className="product-container">
+              {products.slice(0, 3).map((product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  onViewHistory={() => onNavigate("history", product.id)}
                 />
-
-                <h3>{product.name}</h3>
-                <p>Current Price: ₹{product.currentPrice}</p>
-                <p>Target Price: ₹{product.targetPrice}</p>
-                <p>Status: {product.status}</p>
-
-                <button onClick={() => onNavigate("history")}>
-                  View Price History
-                </button>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
 
           <p className="view-all" onClick={() => onNavigate("products")}>
             View All Products →
@@ -94,7 +80,19 @@ function Dashboard({ onNavigate }) {
 
         <section className="activity-section">
           <h2>Recent Activity</h2>
-          <p>Price dropped for wireless headphones</p>
+          {recent.length === 0 ? (
+            <p>No price checks yet.</p>
+          ) : (
+            recent.map((p) => (
+              <p key={p.id}>
+                {p.product_name}: ₹{Number(p.current_price).toLocaleString("en-IN")}
+                {p.current_price <= p.target_price ? " — target reached 🎉" : ""}
+                <span style={{ color: "#777", fontSize: "0.85em" }}>
+                  {" "}({new Date(p.last_checked_at).toLocaleString("en-IN")})
+                </span>
+              </p>
+            ))
+          )}
         </section>
       </main>
     </div>

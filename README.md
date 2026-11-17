@@ -1,3 +1,54 @@
+# Smart Price Tracker with Email Alerts
+
+Track product prices, get an **email when a price drops to your target**, and see
+"best time to buy" insights, sale-event drop analysis and a budget planner.
+
+| Part | Tech | Folder |
+|---|---|---|
+| Frontend | React + Vite (served by nginx) | `frontend/` |
+| API | FastAPI + MongoDB | `backend/` |
+| Price checker | Celery worker + Celery Beat + Redis | `worker/` |
+| Price sources | Scraper adapters (demo store, Open Prices, Amazon/Flipkart APIs) | `scraper/` |
+| CI/CD | GitHub Actions (tests, lint, build, Docker build, push to GHCR) | `.github/workflows/` |
+
+## Run everything
+
+```bash
+cp .env.example .env      # fill in SMTP_* to get real emails; CHECK_INTERVAL_SECONDS=60 for demos
+docker compose up --build
+```
+
+- Frontend: http://localhost:3000
+- API docs (Swagger): http://localhost:8000/docs
+
+## Live demo of a price-drop alert
+
+1. In the frontend, add `http://127.0.0.1:8001/products/product-001` with target price `1200`
+   and your email. Within a few seconds it shows the demo store price (₹1,499).
+2. Drop the price on the demo store (it lives inside the worker container):
+   ```bash
+   docker compose exec worker python demo_price.py product-001 999
+   ```
+3. Click **Check Now** (or wait a few seconds) — the price becomes ₹999, the card shows
+   "Target reached · alert sent ✓", and the email arrives.
+
+Optional: `docker compose exec backend python seed_demo.py` adds 3 demo products with
+45 days of history so the insights, drop report and budget pages have data to show.
+
+## How a price check flows
+
+```
+Frontend --POST /products--> FastAPI --saves--> MongoDB
+                               |
+                               +--"tasks.check_price"--> Redis --> Celery worker
+                                                                     | scraper adapter -> current price
+                                                                     | save price + history to MongoDB
+                                                                     | price <= target? -> send email
+Celery Beat --every CHECK_INTERVAL_SECONDS--> "tasks.enqueue_all_products"
+```
+
+---
+
 # Smart Price Tracker – Scraper & Price Extraction Module
 
 ## 1. Overview

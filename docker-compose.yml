@@ -35,10 +35,17 @@ services:
     container_name: price_tracker_backend
     ports:
       - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
     environment:
       MONGO_URI: mongodb://mongo:27017/price_tracker
+      # lets the API queue an immediate price check on the worker
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       mongo:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   # 4. React frontend

@@ -1,16 +1,30 @@
+import { useState } from "react";
 
 function AddProduct({ onAddProduct, onCancel }) {
-  const handleSubmit = (e) => {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     const formData = new FormData(e.target);
-
     const product = {
-      product_url: formData.get("product_url"),
+      product_url: formData.get("product_url").trim(),
       target_price: Number(formData.get("target_price")),
     };
 
-    onAddProduct(product);
+    const email = formData.get("alert_email").trim();
+    if (email) product.alert_email = email;
+
+    try {
+      setSaving(true);
+      setError("");
+      await onAddProduct(product);
+    } catch (err) {
+      setError(err.message || "Unable to add product.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -24,7 +38,7 @@ function AddProduct({ onAddProduct, onCancel }) {
           <input
             type="url"
             name="product_url"
-            placeholder="Paste product URL"
+            placeholder="e.g. http://127.0.0.1:8001/products/product-001"
             required
           />
 
@@ -34,16 +48,26 @@ function AddProduct({ onAddProduct, onCancel }) {
             name="target_price"
             placeholder="Enter your target price"
             min="1"
+            step="any"
             required
           />
 
+          <label>Email for price-drop alert (optional)</label>
+          <input
+            type="email"
+            name="alert_email"
+            placeholder="you@example.com"
+          />
+
+          {error && <p style={{ color: "#E35336" }}>{error}</p>}
+
           <div className="add-product-actions">
-            <button type="button" onClick={onCancel}>
+            <button type="button" onClick={onCancel} disabled={saving}>
               Cancel
             </button>
 
-            <button type="submit">
-              Start Tracking
+            <button type="submit" disabled={saving}>
+              {saving ? "Adding…" : "Start Tracking"}
             </button>
           </div>
         </form>

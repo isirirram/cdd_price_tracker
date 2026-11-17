@@ -34,7 +34,10 @@ PRODUCTS_VALIDATOR = {
             "target_price": {"bsonType": NUMBER},
             "current_price": {"bsonType": NUMBER + ["null"]},
             "alert_sent": {"bsonType": "bool"},
+            "alert_email": {"bsonType": ["string", "null"]},
             "created_at": {"bsonType": "date"},
+            "last_checked_at": {"bsonType": ["date", "null"]},
+            "last_error": {"bsonType": ["string", "null"]},
         },
     }
 }

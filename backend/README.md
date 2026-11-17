@@ -94,8 +94,8 @@ Names are shared by every service (see `.env.example` in the repo root).
 |---|---|---|
 | `MONGO_URI` | backend, worker | `mongodb://localhost:27017/price_tracker` |
 | `REDIS_URL` | worker | `redis://localhost:6379` |
-| `TELEGRAM_BOT_TOKEN` | worker | (from BotFather) |
-| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` | worker | (email alerts, stretch goal) |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `ALERT_EMAIL_TO` | worker | email price-drop alerts (Gmail needs an App Password) |
+| `REDIS_URL` | backend, worker | lets the API queue an immediate price check |
 
 **Important: the database name is part of `MONGO_URI`** (`.../price_tracker`).
 Everyone must use the same URI so all services read and write the same
@@ -300,7 +300,7 @@ db.products.update_one(
 ```
 
 For the budget alert, call `GET /budget` after each round of checks and send
-the `recommended` list on Telegram.
+the `recommended` list by email.
 
 ### Person 4: Frontend
 

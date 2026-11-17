@@ -3,6 +3,8 @@ uvicorn
 pymongo
 pydantic
 python-dotenv
+celery
+redis
 pytest
 httpx
 mongomock

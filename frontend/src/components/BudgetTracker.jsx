@@ -1,6 +1,7 @@
 
 import { useState } from "react";
 import { setBudget, getBudgetPlan } from "../services/api";
+import Header from "./Header";
 
 function BudgetTracker({ onNavigate }) {
   const [budget, setBudgetValue] = useState("");
@@ -33,17 +34,7 @@ function BudgetTracker({ onNavigate }) {
 
   return (
     <div className="dashboard-page">
-      <header className="navbar">
-        <h1 className="logo">PRICE TRACKER</h1>
-
-        <nav>
-          <span onClick={() => onNavigate("dashboard")}>Dashboard</span>
-          <span onClick={() => onNavigate("products")}>My Products</span>
-          <span onClick={() => onNavigate("history")}>Price History</span>
-          <span onClick={() => onNavigate("budget")}>Budget Tracker</span>
-          <span onClick={() => onNavigate("profile")}>Profile</span>
-        </nav>
-      </header>
+      <Header onNavigate={onNavigate} active="budget" />
 
       <main className="history-page">
         <div className="welcome-section">

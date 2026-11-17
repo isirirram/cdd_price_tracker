@@ -1,26 +1,28 @@
+const LINKS = [
+  ["dashboard", "Dashboard"],
+  ["products", "My Products"],
+  ["history", "Price History"],
+  ["budget", "Budget Tracker"],
+  ["profile", "Profile"],
+];
 
-function Header({ onNavigate }) {
+// Shared navbar used by every page after login
+function Header({ onNavigate, active }) {
   return (
     <header className="navbar">
       <h1 className="logo">PRICE TRACKER</h1>
 
       <nav>
-        <span onClick={() => onNavigate("dashboard")}>
-          Dashboard
-        </span>
-
-        <span onClick={() => onNavigate("products")}>
-          My Products
-        </span>
-
-        <span onClick={() => onNavigate("history")}>
-          Price History
-        </span>
-
-        <span>Profile</span>
+        {LINKS.map(([page, label]) => (
+          <span
+            key={page}
+            onClick={() => onNavigate(page)}
+            style={active === page ? { textDecoration: "underline" } : undefined}
+          >
+            {label}
+          </span>
+        ))}
       </nav>
-
-      <span onClick={() => onNavigate("budget")}>Budget Tracker</span>
     </header>
   );
 }

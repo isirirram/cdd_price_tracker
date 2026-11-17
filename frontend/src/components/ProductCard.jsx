@@ -1,33 +1,58 @@
+import { productStatus } from "../utils/productStatus";
 
-function ProductCard({ product, onViewHistory, onDelete }) {
+const formatPrice = (price) => `₹${Number(price).toLocaleString("en-IN")}`;
+
+function ProductCard({ product, onViewHistory, onDelete, onCheckNow, checking }) {
+  const status = productStatus(product);
+
   return (
     <div className="product-card">
       <div className="product-image">
-        <span>📦</span>
+        <span style={{ fontSize: "55px" }}>🛍️</span>
       </div>
 
-      <h3>{product.product_name}</h3>
+      <div className="product-info">
+        <p className="product-category">{product.site?.toUpperCase()}</p>
 
-      <p>
-        Current Price: ₹{product.current_price ?? "Loading..."}
-      </p>
+        <h3>{product.product_name}</h3>
 
-      <p>
-        Target Price: ₹{product.target_price}
-      </p>
+        <p>
+          Current Price:{" "}
+          <strong>
+            {product.current_price != null
+              ? formatPrice(product.current_price)
+              : "Not checked yet"}
+          </strong>
+        </p>
 
-      <div className="product-card-actions">
-        <button onClick={onViewHistory}>
-          View History
-        </button>
+        <p>
+          Target Price: <strong>{formatPrice(product.target_price)}</strong>
+        </p>
 
-        <button onClick={onDelete}>
-          Delete
-        </button>
+        <p style={{ color: status.color, fontWeight: 600 }}>{status.text}</p>
+
+        {product.last_checked_at && (
+          <p style={{ fontSize: "0.85em", color: "#777" }}>
+            Last checked: {new Date(product.last_checked_at).toLocaleString("en-IN")}
+          </p>
+        )}
+
+        <div className="product-card-actions">
+          {onViewHistory && (
+            <button onClick={onViewHistory}>View Price History</button>
+          )}
+
+          {onCheckNow && (
+            <button onClick={onCheckNow} disabled={checking}>
+              {checking ? "Checking…" : "Check Now"}
+            </button>
+          )}
+
+          {onDelete && <button onClick={onDelete}>Remove</button>}
+        </div>
       </div>
     </div>
   );
 }
 
 export default ProductCard;
-

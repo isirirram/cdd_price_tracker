@@ -9,7 +9,7 @@ on:
 
 jobs:
   backend-and-scraper-tests:
-    name: Backend and Scraper Tests
+    name: Backend, Scraper and Worker Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -26,14 +26,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
 
-      - name: Install scraper dependencies
-        run: pip install -r scraper/requirements.txt
+      - name: Install scraper and worker dependencies
+        run: |
+          pip install -r scraper/requirements.txt
+          pip install -r worker/requirements.txt mongomock
 
       - name: Run backend tests
         run: python -m pytest backend/tests -v
 
       - name: Run scraper tests
         run: python -m pytest scraper/tests -v
+
+      # Catches things like a missing import that would crash the worker
+      - name: Run worker tests
+        run: python -m pytest worker/tests -v
 
   frontend-check:
     name: Frontend Lint and Build

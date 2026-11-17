@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 
 import Login from "./components/login";
@@ -11,40 +10,34 @@ import BudgetTracker from "./components/BudgetTracker";
 
 function App() {
   const [currentPage, setCurrentPage] = useState("login");
+  // Lets "View Price History" on a product open that product directly
+  const [selectedProductId, setSelectedProductId] = useState(null);
 
-  const navigate = (page) => {
+  const navigate = (page, productId = null) => {
+    setSelectedProductId(productId);
     setCurrentPage(page);
   };
 
   return (
     <>
-      {currentPage === "login" && (
-        <Login onNavigate={navigate} />
-      )}
+      {currentPage === "login" && <Login onNavigate={navigate} />}
 
-      {currentPage === "signup" && (
-        <Signup onNavigate={navigate} />
-      )}
+      {currentPage === "signup" && <Signup onNavigate={navigate} />}
 
-      {currentPage === "dashboard" && (
-        <Dashboard onNavigate={navigate} />
-      )}
+      {currentPage === "dashboard" && <Dashboard onNavigate={navigate} />}
 
-      {currentPage === "products" && (
-        <ProductList onNavigate={navigate} />
-      )}
+      {currentPage === "products" && <ProductList onNavigate={navigate} />}
 
       {currentPage === "history" && (
-        <PriceHistory onNavigate={navigate} />
+        <PriceHistory
+          onNavigate={navigate}
+          initialProductId={selectedProductId}
+        />
       )}
 
-      {currentPage === "budget" && (
-        <BudgetTracker onNavigate={navigate} />
-      )}
+      {currentPage === "budget" && <BudgetTracker onNavigate={navigate} />}
 
-      {currentPage === "profile" && (
-        <Profile onNavigate={navigate} />
-      )}
+      {currentPage === "profile" && <Profile onNavigate={navigate} />}
     </>
   );
 }

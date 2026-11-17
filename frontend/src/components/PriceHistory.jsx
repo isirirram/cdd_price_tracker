@@ -6,8 +6,9 @@ import {
   getProductInsights,
   getProductDrops,
 } from "../services/api";
+import Header from "./Header";
 
-function PriceHistory({ onNavigate }) {
+function PriceHistory({ onNavigate, initialProductId }) {
   const [products, setProducts] = useState([]);
   const [selectedProduct, setSelectedProduct] = useState(null);
 
@@ -19,23 +20,6 @@ function PriceHistory({ onNavigate }) {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        setLoading(true);
-        setError("");
-
-        const data = await getProducts();
-        setProducts(data);
-      } catch (err) {
-        setError(err.message || "Unable to load products.");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchProducts();
-  }, []);
 
   const selectProduct = async (product) => {
     try {
@@ -63,6 +47,18 @@ function PriceHistory({ onNavigate }) {
       setDetailsLoading(false);
     }
   };
+
+  useEffect(() => {
+    getProducts()
+      .then((data) => {
+        setProducts(data);
+        // Opened via "View Price History" on a product: show it straight away
+        const preselected = data.find((p) => p.id === initialProductId);
+        if (preselected) selectProduct(preselected);
+      })
+      .catch((err) => setError(err.message || "Unable to load products."))
+      .finally(() => setLoading(false));
+  }, [initialProductId]);
 
   const formatDate = (date) => {
     return new Date(date).toLocaleDateString("en-IN", {
@@ -140,17 +136,7 @@ function PriceHistory({ onNavigate }) {
 
   return (
     <div className="dashboard-page">
-      <header className="navbar">
-        <h1 className="logo">PRICE TRACKER</h1>
-
-        <nav>
-          <span onClick={() => onNavigate("dashboard")}>Dashboard</span>
-          <span onClick={() => onNavigate("products")}>My Products</span>
-          <span onClick={() => onNavigate("history")}>Price History</span>
-          <span onClick={() => onNavigate("profile")}>Profile</span>
-          <span onClick={() => onNavigate("budget")}>Budget Tracker</span>
-        </nav>
-      </header>
+      <Header onNavigate={onNavigate} active="history" />
 
       <main className="history-page">
         <div className="welcome-section">
