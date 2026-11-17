@@ -87,7 +87,7 @@ TOOLS = [
                 "properties": {
                     "product_url": {"type": "string", "description": "Full http(s) product URL"},
                     "target_price": {"type": "number", "description": "Alert when price is at or below this, in INR"},
-                    "alert_email": {"type": "string", "description": "Optional email for the price-drop alert"},
+                    "notify_email": {"type": "string", "description": "Optional email for the price-drop alert"},
                 },
                 "required": ["product_url", "target_price"],
             },
@@ -188,12 +188,12 @@ class ChatTools:
             budget["monthly_budget"], budget.get("spent_this_month", 0.0), products, averages
         )
 
-    def add_product(self, product_url, target_price, alert_email=None):
+    def add_product(self, product_url, target_price, notify_email=None):
         try:
             payload = ProductCreate(
                 product_url=product_url,
                 target_price=target_price,
-                alert_email=alert_email or None,
+                notify_email=notify_email or None,
                 user_id=self.user_id,
             )
         except ValidationError as exc:
@@ -207,7 +207,7 @@ class ChatTools:
             "product_id": str(doc["_id"]),
             "product_url": doc["product_url"],
             "target_price": doc["target_price"],
-            "alert_email": doc["alert_email"],
+            "notify_email": doc["notify_email"],
             "first_price_check_started": queued,
         }
 
@@ -365,7 +365,7 @@ def offline_reply(tools: ChatTools, message: str) -> str:
         if "error" in result:
             return result["error"]
         reply = f"✅ Now tracking that product. I'll alert you when it drops to {inr(price)} or below"
-        reply += f" (email to {result['alert_email']})." if result["alert_email"] else "."
+        reply += f" (email to {result['notify_email']})." if result["notify_email"] else "."
         if result["first_price_check_started"]:
             reply += " Fetching its current price now."
         return reply

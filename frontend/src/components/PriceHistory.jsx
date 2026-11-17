@@ -21,6 +21,7 @@ function PriceHistory({ onNavigate, initialProductId }) {
   const [error, setError] = useState("");
 
 
+  // Select product and fetch its details
   const selectProduct = async (product) => {
     try {
       setSelectedProduct(product);
@@ -38,7 +39,7 @@ function PriceHistory({ onNavigate, initialProductId }) {
           getProductDrops(product.id),
         ]);
 
-      setHistory(historyData);
+      setHistory(Array.isArray(historyData) ? historyData : []);
       setInsights(insightsData);
       setDropReport(dropsData);
     } catch (err) {
@@ -51,9 +52,10 @@ function PriceHistory({ onNavigate, initialProductId }) {
   useEffect(() => {
     getProducts()
       .then((data) => {
-        setProducts(data);
+        const list = Array.isArray(data) ? data : [];
+        setProducts(list);
         // Opened via "View Price History" on a product: show it straight away
-        const preselected = data.find((p) => p.id === initialProductId);
+        const preselected = list.find((p) => p.id === initialProductId);
         if (preselected) selectProduct(preselected);
       })
       .catch((err) => setError(err.message || "Unable to load products."))
@@ -61,6 +63,8 @@ function PriceHistory({ onNavigate, initialProductId }) {
   }, [initialProductId]);
 
   const formatDate = (date) => {
+    if (!date) return "—";
+
     return new Date(date).toLocaleDateString("en-IN", {
       day: "2-digit",
       month: "short",
@@ -68,6 +72,8 @@ function PriceHistory({ onNavigate, initialProductId }) {
   };
 
   const formatPrice = (price) => {
+    if (price === null || price === undefined) return "—";
+
     return `₹${Number(price).toLocaleString("en-IN")}`;
   };
 
@@ -83,32 +89,36 @@ function PriceHistory({ onNavigate, initialProductId }) {
   const chartAreaWidth = chartWidth - chartLeft - chartRight;
   const chartAreaHeight = chartHeight - chartTop - chartBottom;
 
-  const prices = history.map((item) => Number(item.price));
+  const prices = history
+    .map((item) => Number(item.price))
+    .filter(Number.isFinite);
 
   const minPrice = prices.length ? Math.min(...prices) : 0;
   const maxPrice = prices.length ? Math.max(...prices) : 0;
 
   const priceRange = maxPrice - minPrice || 1;
 
-  const points = history.map((item, index) => {
-    const x =
-      chartLeft +
-      (history.length === 1
-        ? chartAreaWidth / 2
-        : (index / (history.length - 1)) * chartAreaWidth);
+  const points = history
+    .filter((item) => Number.isFinite(Number(item.price)))
+    .map((item, index, validHistory) => {
+      const x =
+        chartLeft +
+        (validHistory.length === 1
+          ? chartAreaWidth / 2
+          : (index / (validHistory.length - 1)) * chartAreaWidth);
 
-    const y =
-      chartTop +
-      ((maxPrice - Number(item.price)) / priceRange) *
-        chartAreaHeight;
+      const y =
+        chartTop +
+        ((maxPrice - Number(item.price)) / priceRange) *
+          chartAreaHeight;
 
-    return {
-      x,
-      y,
-      price: item.price,
-      date: item.checked_at,
-    };
-  });
+      return {
+        x,
+        y,
+        price: item.price,
+        date: item.checked_at,
+      };
+    });
 
   const graphLine = points
     .map((point, index) =>
@@ -151,6 +161,7 @@ function PriceHistory({ onNavigate, initialProductId }) {
         {error && (
           <div>
             <p>{error}</p>
+
             <button onClick={() => window.location.reload()}>
               Retry
             </button>
@@ -205,10 +216,13 @@ function PriceHistory({ onNavigate, initialProductId }) {
           </>
         )}
 
-        {detailsLoading && <p>Loading price history and insights...</p>}
+        {detailsLoading && (
+          <p>Loading price history and insights...</p>
+        )}
 
         {selectedProduct && !detailsLoading && !error && (
           <>
+            {/* PRICE HISTORY GRAPH */}
             <div className="chart-card" style={{ marginTop: "35px" }}>
               <h2>{selectedProduct.product_name}</h2>
               <p>Price History</p>
@@ -294,7 +308,9 @@ function PriceHistory({ onNavigate, initialProductId }) {
 
                           {(index === 0 ||
                             index === points.length - 1 ||
-                            index % Math.ceil(points.length / 6) === 0) && (
+                            index %
+                              Math.max(1, Math.ceil(points.length / 6)) ===
+                              0) && (
                             <text
                               x={point.x}
                               y={chartHeight - chartBottom + 22}
@@ -335,6 +351,7 @@ function PriceHistory({ onNavigate, initialProductId }) {
                     <p>
                       <strong>Lowest:</strong> {formatPrice(minPrice)}
                     </p>
+
                     <p>
                       <strong>Highest:</strong> {formatPrice(maxPrice)}
                     </p>
@@ -351,11 +368,13 @@ function PriceHistory({ onNavigate, initialProductId }) {
                 <h3
                   style={{
                     color:
-                      recommendationColor[insights.recommendation],
+                      recommendationColor[insights.recommendation] ||
+                      "#777777",
                     marginTop: "15px",
                   }}
                 >
-                  {recommendationText[insights.recommendation]}
+                  {recommendationText[insights.recommendation] ||
+                    "Not Enough Data"}
                 </h3>
 
                 <p>{insights.reason}</p>
@@ -363,42 +382,32 @@ function PriceHistory({ onNavigate, initialProductId }) {
                 <div className="history-grid">
                   <p>
                     <strong>Current Price:</strong>{" "}
-                    {insights.current_price != null
-                      ? formatPrice(insights.current_price)
-                      : "—"}
+                    {formatPrice(insights.current_price)}
                   </p>
 
                   <p>
                     <strong>Lowest Price:</strong>{" "}
-                    {insights.lowest_price != null
-                      ? formatPrice(insights.lowest_price)
-                      : "—"}
+                    {formatPrice(insights.lowest_price)}
                   </p>
 
                   <p>
                     <strong>Average Price:</strong>{" "}
-                    {insights.average_price != null
-                      ? formatPrice(insights.average_price)
-                      : "—"}
+                    {formatPrice(insights.average_price)}
                   </p>
 
                   <p>
                     <strong>Highest Price:</strong>{" "}
-                    {insights.highest_price != null
-                      ? formatPrice(insights.highest_price)
-                      : "—"}
+                    {formatPrice(insights.highest_price)}
                   </p>
 
                   <p>
                     <strong>Moving Average (7):</strong>{" "}
-                    {insights.moving_average_7 != null
-                      ? formatPrice(insights.moving_average_7)
-                      : "—"}
+                    {formatPrice(insights.moving_average_7)}
                   </p>
 
                   <p>
                     <strong>Confidence:</strong>{" "}
-                    {insights.confidence}
+                    {insights.confidence || "—"}
                   </p>
                 </div>
 
@@ -431,11 +440,13 @@ function PriceHistory({ onNavigate, initialProductId }) {
 
                 {insights.sale_note && <p>{insights.sale_note}</p>}
 
-                <small>{insights.disclaimer}</small>
+                {insights.disclaimer && (
+                  <small>{insights.disclaimer}</small>
+                )}
               </div>
             )}
 
-            {/* SALE EVENT TRACKER */}
+            {/* FESTIVAL AND SALE EVENT TRACKER */}
             {dropReport && (
               <div className="chart-card" style={{ marginTop: "25px" }}>
                 <h2>Festival & Sale Price Drops</h2>
@@ -443,37 +454,38 @@ function PriceHistory({ onNavigate, initialProductId }) {
                 <div className="history-grid">
                   <p>
                     <strong>Sale Event Drops:</strong>{" "}
-                    {dropReport.summary.sale_event_drops}
+                    {dropReport.summary?.sale_event_drops ?? 0}
                   </p>
 
                   <p>
                     <strong>Standalone Drops:</strong>{" "}
-                    {dropReport.summary.standalone_drops}
+                    {dropReport.summary?.standalone_drops ?? 0}
                   </p>
 
                   <p>
                     <strong>Average Sale Drop:</strong>{" "}
-                    {dropReport.summary.average_sale_drop_percent != null
+                    {dropReport.summary?.average_sale_drop_percent != null
                       ? `${dropReport.summary.average_sale_drop_percent}%`
                       : "—"}
                   </p>
 
                   <p>
                     <strong>Average Standalone Drop:</strong>{" "}
-                    {dropReport.summary.average_standalone_drop_percent != null
+                    {dropReport.summary?.average_standalone_drop_percent != null
                       ? `${dropReport.summary.average_standalone_drop_percent}%`
                       : "—"}
                   </p>
                 </div>
 
-                {dropReport.summary.currently_in_sale_event && (
+                {dropReport.summary?.currently_in_sale_event && (
                   <p>
                     <strong>Current Event:</strong>{" "}
                     {dropReport.summary.currently_in_sale_event}
                   </p>
                 )}
 
-                {dropReport.drops.length === 0 ? (
+                {!Array.isArray(dropReport.drops) ||
+                dropReport.drops.length === 0 ? (
                   <p>No significant price drops detected yet.</p>
                 ) : (
                   <div style={{ overflowX: "auto" }}>
@@ -497,7 +509,7 @@ function PriceHistory({ onNavigate, initialProductId }) {
                             <td>{drop.drop_percent}%</td>
                             <td>
                               {drop.classification === "sale_event"
-                                ? `🎉 ${drop.sale_event}`
+                                ? `🎉 ${drop.sale_event || "Sale Event"}`
                                 : "Standalone"}
                             </td>
                           </tr>

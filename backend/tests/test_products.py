@@ -103,14 +103,14 @@ def test_delete_not_found(client):
 
 # ------------------------------------------------ email + "check now" tests
 def test_add_product_with_alert_email(client):
-    r = client.post("/products", json={**VALID, "alert_email": "me@example.com"})
+    r = client.post("/products", json={**VALID, "notify_email": "me@example.com"})
     assert r.status_code == 201
-    assert r.json()["alert_email"] == "me@example.com"
+    assert r.json()["notify_email"] == "me@example.com"
     assert r.json()["last_error"] is None
 
 
 def test_add_product_bad_email(client):
-    r = client.post("/products", json={**VALID, "alert_email": "not-an-email"})
+    r = client.post("/products", json={**VALID, "notify_email": "not-an-email"})
     assert r.status_code == 400
 
 
@@ -142,3 +142,34 @@ def test_check_now_without_worker_returns_503(client, monkeypatch):
 
 def test_check_now_missing_product(client):
     assert client.post(f"/products/{MISSING_ID}/check").status_code == 404
+
+
+# ------------------------------------- change alert email (from frontend/UI)
+def test_add_product_without_notify_email(client):
+    r = client.post("/products", json=VALID)
+    assert r.status_code == 201
+    assert r.json()["notify_email"] is None
+
+
+def test_update_notify_email_resets_alert(client, db):
+    pid = client.post("/products", json=VALID).json()["id"]
+    db.products.update_one({"_id": ObjectId(pid)}, {"$set": {"alert_sent": True}})
+
+    r = client.patch(f"/products/{pid}/notify-email", json={"notify_email": "a@b.com"})
+    assert r.status_code == 200
+    assert r.json()["notify_email"] == "a@b.com"
+    assert r.json()["alert_sent"] is False
+
+
+def test_clear_notify_email(client):
+    pid = client.post(
+        "/products", json={**VALID, "notify_email": "a@b.com"}
+    ).json()["id"]
+    r = client.patch(f"/products/{pid}/notify-email", json={"notify_email": None})
+    assert r.status_code == 200
+    assert r.json()["notify_email"] is None
+
+
+def test_update_notify_email_missing_product(client):
+    r = client.patch(f"/products/{MISSING_ID}/notify-email", json={"notify_email": "a@b.com"})
+    assert r.status_code == 404

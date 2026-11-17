@@ -5,7 +5,7 @@ from bson.errors import InvalidId
 
 from celery_app import celery_app
 from database import price_history_collection, products_collection
-from notifications import EmailNotConfigured, send_email_alert
+from notifications import EmailNotConfigured, resolve_recipient, send_email_alert
 from scraper_adapter import get_scraper_result
 
 
@@ -98,13 +98,20 @@ def check_price(product_id, simulated_price=None):
     if product.get("alert_sent"):
         return "Alert already sent"
 
+    to_email = resolve_recipient(product)
+    if not to_email:
+        # No address for this product and no ALERT_EMAIL_TO fallback.
+        # alert_sent stays False, so adding an email later still works.
+        print(f"WARNING: no alert email set for product {product_id}")
+        return "Target reached, but no email address is set"
+
     try:
-        sent_to = send_email_alert(
-            product_name,
-            current_price,
-            target_price,
-            product_url,
-            recipient=product.get("alert_email"),
+        send_email_alert(
+            to_email=to_email,
+            product_name=product_name,
+            product_url=product_url,
+            current_price=current_price,
+            target_price=target_price,
         )
     except EmailNotConfigured as exc:
         # Leave alert_sent False so it is retried on the next check
@@ -115,7 +122,7 @@ def check_price(product_id, simulated_price=None):
         return "Target reached, but alert could not be sent"
 
     products_collection.update_one({"_id": oid}, {"$set": {"alert_sent": True}})
-    return f"Price drop alert emailed to {sent_to}"
+    return f"Price drop alert emailed to {to_email}"
 
 
 @celery_app.task(name="tasks.enqueue_all_products")

@@ -26,7 +26,7 @@ def create_product(db, payload: ProductCreate) -> dict:
         "target_price": payload.target_price,
         "current_price": None,
         "alert_sent": False,
-        "alert_email": payload.alert_email,
+        "notify_email": str(payload.notify_email) if payload.notify_email else None,
         "created_at": datetime.now(timezone.utc),
     }
     result = db.products.insert_one(doc)

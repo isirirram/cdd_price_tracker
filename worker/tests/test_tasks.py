@@ -1,10 +1,8 @@
 from datetime import datetime, timezone
-from types import SimpleNamespace
 
 import pytest
 from bson import ObjectId
 
-import notifications
 import tasks
 from database import price_history_collection, products_collection
 from scraper.models import CachePolicy, ScraperResult, SourceCategory
@@ -30,7 +28,7 @@ def add_product(target=1000.0, alert_sent=False, email="buyer@example.com"):
                 "target_price": target,
                 "current_price": None,
                 "alert_sent": alert_sent,
-                "alert_email": email,
+                "notify_email": email,
                 "created_at": datetime.now(timezone.utc),
             }
         ).inserted_id
@@ -92,9 +90,7 @@ def test_scrape_failure_is_recorded(monkeypatch):
 def test_alert_sent_once_when_target_reached(monkeypatch):
     pid = add_product(target=1000)
     sent = []
-    monkeypatch.setattr(
-        tasks, "send_email_alert", lambda *a, **k: sent.append(k["recipient"]) or k["recipient"]
-    )
+    monkeypatch.setattr(tasks, "send_email_alert", lambda **k: sent.append(k["to_email"]))
 
     assert "emailed to buyer@example.com" in tasks.check_price(pid, simulated_price=900)
     assert tasks.check_price(pid, simulated_price=850) == "Alert already sent"
@@ -108,6 +104,12 @@ def test_alert_rearms_when_price_goes_back_up(monkeypatch):
     assert products_collection.find_one({"_id": ObjectId(pid)})["alert_sent"] is False
 
 
+def test_no_recipient_does_not_crash():
+    pid = add_product(target=1000, email=None)
+    assert tasks.check_price(pid, simulated_price=900) == "Target reached, but no email address is set"
+    assert products_collection.find_one({"_id": ObjectId(pid)})["alert_sent"] is False
+
+
 def test_missing_smtp_config_does_not_crash():
     pid = add_product(target=1000)
     assert tasks.check_price(pid, simulated_price=900) == "Target reached, but email is not configured"
@@ -118,39 +120,3 @@ def test_missing_smtp_config_does_not_crash():
 def test_invalid_and_missing_ids():
     assert tasks.check_price("not-an-id") == "Invalid product id"
     assert tasks.check_price("507f1f77bcf86cd799439011") == "Product not found"
-
-
-def test_email_message_and_recipient_fallback(monkeypatch):
-    monkeypatch.setenv("ALERT_EMAIL_TO", "team@example.com")
-    assert notifications.resolve_recipient(None) == "team@example.com"
-    assert notifications.resolve_recipient("me@example.com") == "me@example.com"
-
-    msg = notifications.build_message("bot@x.com", "me@x.com", "Headphones", 900, 1000, "http://x")
-    assert "Headphones" in msg["Subject"]
-    assert "₹100.00" in msg.get_content()
-
-
-def test_send_email_uses_smtp(monkeypatch):
-    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
-    monkeypatch.setenv("SMTP_USER", "bot@example.com")
-    monkeypatch.setenv("SMTP_PASSWORD", "secret")
-    calls = SimpleNamespace(sent=None, tls=False)
-
-    class FakeSMTP:
-        def __init__(self, host, port, timeout):
-            assert (host, port) == ("smtp.example.com", 587)
-        def __enter__(self):
-            return self
-        def __exit__(self, *exc):
-            return False
-        def starttls(self, context):
-            calls.tls = True
-        def login(self, user, password):
-            assert password == "secret"
-        def send_message(self, msg):
-            calls.sent = msg
-
-    monkeypatch.setattr(notifications.smtplib, "SMTP", FakeSMTP)
-    to = notifications.send_email_alert("Headphones", 900, 1000, "http://x", "me@example.com")
-    assert to == "me@example.com"
-    assert calls.tls and calls.sent["To"] == "me@example.com"

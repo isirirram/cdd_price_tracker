@@ -50,6 +50,18 @@ export function deleteProduct(id) {
   });
 }
 
+export function getProductById(id) {
+  return apiRequest(`/products/${id}`);
+}
+
+// Change (or clear with null) the email that gets the price-drop alert
+export function updateNotifyEmail(id, email) {
+  return apiRequest(`/products/${id}/notify-email`, {
+    method: "PATCH",
+    body: JSON.stringify({ notify_email: email || null }),
+  });
+}
+
 // Ask the worker to re-check this product's price right now
 export function checkProductNow(id) {
   return apiRequest(`/products/${id}/check`, {

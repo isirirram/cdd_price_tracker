@@ -23,6 +23,7 @@ import chatbot
 from models import (
     BudgetSet,
     ChatRequest,
+    NotifyEmailUpdate,
     PricePoint,
     ProductCreate,
     ProductOut,
@@ -113,7 +114,7 @@ def serialize(doc: dict) -> ProductOut:
         target_price=doc["target_price"],
         current_price=doc.get("current_price"),
         alert_sent=doc.get("alert_sent", False),
-        alert_email=doc.get("alert_email"),
+        notify_email=doc.get("notify_email"),
         created_at=doc["created_at"],
         last_checked_at=doc.get("last_checked_at"),
         last_error=doc.get("last_error"),
@@ -180,6 +181,24 @@ def check_now(product_id: str, db=Depends(get_db)):
             detail="Price checker is not running (REDIS_URL not set or Redis is down)",
         )
     return {"message": "Price check queued", "product_id": product_id}
+
+
+@app.patch("/products/{product_id}/notify-email", response_model=ProductOut)
+def update_notify_email(
+    product_id: str, payload: NotifyEmailUpdate, db=Depends(get_db)
+):
+    """Set or clear the email address that gets the price-drop alert."""
+    oid = to_object_id(product_id)
+    email = str(payload.notify_email) if payload.notify_email else None
+    result = db.products.update_one(
+        {"_id": oid},
+        # Reset alert_sent so the new address gets an alert if the price
+        # is already below target.
+        {"$set": {"notify_email": email, "alert_sent": False}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return serialize(db.products.find_one({"_id": oid}))
 
 
 @app.delete("/products/{product_id}")

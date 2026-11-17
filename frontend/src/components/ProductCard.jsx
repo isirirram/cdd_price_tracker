@@ -31,6 +31,10 @@ function ProductCard({ product, onViewHistory, onDelete, onCheckNow, checking })
 
         <p style={{ color: status.color, fontWeight: 600 }}>{status.text}</p>
 
+        <p style={{ fontSize: "0.85em", color: "#777" }}>
+          Alerts to: {product.notify_email || "default address"}
+        </p>
+
         {product.last_checked_at && (
           <p style={{ fontSize: "0.85em", color: "#777" }}>
             Last checked: {new Date(product.last_checked_at).toLocaleString("en-IN")}

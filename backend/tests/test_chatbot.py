@@ -69,7 +69,7 @@ def test_add_product_from_sentence(client, db):
 
     doc = db.products.find_one()
     assert doc["target_price"] == 1200
-    assert doc["alert_email"] == "siri@example.com"
+    assert doc["notify_email"] == "siri@example.com"
     assert doc["product_url"] == DEMO_URL
 
 

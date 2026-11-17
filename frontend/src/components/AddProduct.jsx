@@ -13,8 +13,8 @@ function AddProduct({ onAddProduct, onCancel }) {
       target_price: Number(formData.get("target_price")),
     };
 
-    const email = formData.get("alert_email").trim();
-    if (email) product.alert_email = email;
+    const email = formData.get("notify_email").trim();
+    if (email) product.notify_email = email;
 
     try {
       setSaving(true);
@@ -55,7 +55,7 @@ function AddProduct({ onAddProduct, onCancel }) {
           <label>Email for price-drop alert (optional)</label>
           <input
             type="email"
-            name="alert_email"
+            name="notify_email"
             placeholder="you@example.com"
           />
 

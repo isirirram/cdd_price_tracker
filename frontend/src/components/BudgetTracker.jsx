@@ -13,6 +13,16 @@ function BudgetTracker({ onNavigate }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (Number(budget) <= 0 || Number(spent) < 0) {
+      setError("Please enter valid budget amounts.");
+      return;
+    }
+
+    if (Number(spent) > Number(budget)) {
+      setError("Amount spent cannot exceed your monthly budget.");
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
@@ -29,8 +39,15 @@ function BudgetTracker({ onNavigate }) {
     }
   };
 
-  const formatPrice = (price) =>
-    `₹${Number(price).toLocaleString("en-IN")}`;
+  const formatPrice = (price) => {
+    if (price === null || price === undefined) return "—";
+
+    return `₹${Number(price).toLocaleString("en-IN")}`;
+  };
+
+  const recommended = plan?.recommended || [];
+  const skipped = plan?.skipped || [];
+  const waiting = plan?.waiting_for_first_price || [];
 
   return (
     <div className="dashboard-page">
@@ -49,9 +66,11 @@ function BudgetTracker({ onNavigate }) {
 
           <form onSubmit={handleSubmit}>
             <label>Monthly Budget (₹)</label>
+
             <input
               type="number"
               min="1"
+              step="0.01"
               placeholder="Enter your monthly budget"
               value={budget}
               onChange={(e) => setBudgetValue(e.target.value)}
@@ -59,9 +78,11 @@ function BudgetTracker({ onNavigate }) {
             />
 
             <label>Amount Already Spent (₹)</label>
+
             <input
               type="number"
               min="0"
+              step="0.01"
               placeholder="Enter amount spent"
               value={spent}
               onChange={(e) => setSpent(e.target.value)}
@@ -111,10 +132,12 @@ function BudgetTracker({ onNavigate }) {
             <div className="chart-card" style={{ marginTop: "25px" }}>
               <h2>Best Deals Within Your Budget 🎉</h2>
 
-              {plan.recommended.length === 0 ? (
-                <p>No suitable deals found within your remaining budget.</p>
+              {recommended.length === 0 ? (
+                <p>
+                  No suitable deals found within your remaining budget.
+                </p>
               ) : (
-                plan.recommended.map((product) => (
+                recommended.map((product) => (
                   <div
                     key={product.product_id}
                     className="alert-card"
@@ -128,8 +151,7 @@ function BudgetTracker({ onNavigate }) {
                     </p>
 
                     <p>
-                      Average Price:{" "}
-                      {formatPrice(product.average_price)}
+                      Average Price: {formatPrice(product.average_price)}
                     </p>
 
                     <p>
@@ -140,8 +162,7 @@ function BudgetTracker({ onNavigate }) {
                     </p>
 
                     <p>
-                      Target Price Hit:{" "}
-                      {product.target_hit ? "Yes ✓" : "No"}
+                      Target Price Hit: {product.target_hit ? "Yes ✓" : "No"}
                     </p>
                   </div>
                 ))
@@ -151,10 +172,10 @@ function BudgetTracker({ onNavigate }) {
             <div className="chart-card" style={{ marginTop: "25px" }}>
               <h2>Other Products</h2>
 
-              {plan.skipped.length === 0 ? (
+              {skipped.length === 0 ? (
                 <p>No skipped products.</p>
               ) : (
-                plan.skipped.map((product) => (
+                skipped.map((product) => (
                   <div
                     key={product.product_id}
                     className="alert-card"
@@ -176,13 +197,13 @@ function BudgetTracker({ onNavigate }) {
                 ))
               )}
 
-              {plan.waiting_for_first_price.length > 0 && (
+              {waiting.length > 0 && (
                 <>
                   <h3 style={{ marginTop: "20px" }}>
                     Waiting for First Price Check
                   </h3>
 
-                  {plan.waiting_for_first_price.map((product) => (
+                  {waiting.map((product) => (
                     <p key={product.product_id}>
                       {product.product_name}
                     </p>
