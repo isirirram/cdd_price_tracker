@@ -27,6 +27,7 @@ def create_product(db, payload: ProductCreate) -> dict:
         "current_price": None,
         "alert_sent": False,
         "notify_email": str(payload.notify_email) if payload.notify_email else None,
+        "image_url": None,  # filled in by the worker after the first scrape
         "created_at": datetime.now(timezone.utc),
     }
     result = db.products.insert_one(doc)
