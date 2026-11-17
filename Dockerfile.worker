@@ -1,0 +1,25 @@
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install worker dependencies
+COPY worker/requirements.txt /app/worker/requirements.txt
+RUN pip install --no-cache-dir -r /app/worker/requirements.txt
+
+# Install scraper dependencies
+COPY scraper/requirements.txt /app/scraper/requirements.txt
+RUN pip install --no-cache-dir -r /app/scraper/requirements.txt
+
+# Copy worker and scraper source code
+COPY worker/ /app/worker/
+COPY scraper/ /app/scraper/
+
+# Configure Python imports
+ENV PYTHONPATH=/app/worker:/app
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app/worker
+
+# Start Celery worker
+CMD ["celery", "-A", "celery_app.celery_app", "worker", "--loglevel=info"]

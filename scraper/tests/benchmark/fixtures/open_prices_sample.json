@@ -1,0 +1,18 @@
+{
+  "items": [
+    {
+      "id": 101,
+      "product_code": "8901030825347",
+      "product_name": "Tata Tea Gold 500g",
+      "price": 310.0,
+      "currency": "INR",
+      "date": "2026-11-10",
+      "owner": "user_hash_123",
+      "location_osm_address_country_code": "IN"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "size": 10
+}
+

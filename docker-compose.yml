@@ -1,0 +1,101 @@
+
+services:
+
+  # 1. MongoDB database
+  mongo:
+    image: mongo:7
+    container_name: price_tracker_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. Redis message broker
+  redis:
+    image: redis:7-alpine
+    container_name: price_tracker_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 3. FastAPI backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: price_tracker_backend
+    ports:
+      - "8000:8000"
+    environment:
+      MONGO_URI: mongodb://mongo:27017/price_tracker
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  # 4. React frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_URL: http://localhost:8000
+    container_name: price_tracker_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  # 5. Celery worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: price_tracker_worker
+    # Demo store runs inside the worker container on 127.0.0.1:8001
+    # (it is only allowed to bind to 127.0.0.1, and 8000 is the backend's port)
+    command: >
+      sh -c "python /app/scraper/demo_store/server.py --port 8001 &
+             celery -A celery_app.celery_app worker --loglevel=info"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MONGO_URI: mongodb://mongo:27017/price_tracker
+      REDIS_URL: redis://redis:6379/0
+      LOCAL_STORE_URL: http://127.0.0.1:8001
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 6. Celery Beat scheduler
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: price_tracker_beat
+    command: celery -A celery_app.celery_app beat --loglevel=info
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MONGO_URI: mongodb://mongo:27017/price_tracker
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  mongo_data:

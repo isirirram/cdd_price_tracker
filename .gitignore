@@ -1,30 +1,36 @@
-venv/
-__pycache__/
-*.pyc
-.pytest_cache/
-.env
-.vscode/
-.idea/
-.DS_Store
 
-# Environment variables
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Environment files
 .env
 .env.*
 !.env.example
 **/.env
-**/.env.*
 
-# Dependencies
+# IDE settings
+.vscode/
+.idea/
+
+# Node.js and frontend
 node_modules/
-
-# Build files
 dist/
 
+# Test coverage
+.coverage
+htmlcov/
 
-# Frontend build
-frontend/dist/
-frontend/node_modules/
-
-# Logs
-*.log
+# npm logs
 npm-debug.log*
+*.log
+
+# Celery Beat runtime files
+**/celerybeat-schedule*
+
+# Operating system
+.DS_Store
+Thumbs.db

@@ -1,96 +1,90 @@
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-const USER_ID = "demo-user";
+// Common API request handler
+const apiRequest = async (endpoint, options = {}) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    });
 
-// Common API request function
-async function apiRequest(endpoint, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
+    const data = await response.json().catch(() => ({}));
 
-  const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.detail || data.message || "Something went wrong");
+    }
 
-  if (!response.ok) {
-    throw new Error(data.detail || "Something went wrong");
+    return data;
+  } catch (error) {
+    console.error("API Error:", error.message);
+    throw error;
   }
+};
 
-  return data;
-}
-
-// PRODUCT APIs
-
-export function getProducts() {
+// Get all products
+export const getProducts = () => {
   return apiRequest("/products");
-}
+};
 
-export function addProduct(product) {
+// Add a product
+export const addProduct = (productData) => {
   return apiRequest("/products", {
     method: "POST",
-    body: JSON.stringify({
-      ...product,
-      user_id: USER_ID,
-    }),
+    body: JSON.stringify(productData),
   });
-}
+};
 
-export function deleteProduct(id) {
-  return apiRequest(`/products/${id}`, {
+// Get product details
+export const getProductById = (productId) => {
+  return apiRequest(`/products/${productId}`);
+};
+
+// Delete a product
+export const deleteProduct = (productId) => {
+  return apiRequest(`/products/${productId}`, {
     method: "DELETE",
   });
-}
+};
 
-export function getPriceHistory(id) {
-  return apiRequest(`/products/${id}/history`);
-}
+// Get product price history
+export const getPriceHistory = (productId) => {
+  return apiRequest(`/products/${productId}/history`);
+};
 
-// FEATURE 1: BEST TIME TO BUY
-
-export function getProductInsights(id) {
-  return apiRequest(`/products/${id}/insights`);
-}
-
-// FEATURE 2: FESTIVAL / SALE EVENT TRACKER
-
-export function getProductDrops(id) {
-  return apiRequest(`/products/${id}/drops`);
-}
-
-export function getSaleEvents() {
-  return apiRequest("/sale-events");
-}
-
-export function addSaleEvent(event) {
-  return apiRequest("/sale-events", {
-    method: "POST",
-    body: JSON.stringify(event),
+// Update product target price
+export const updateTargetPrice = (productId, targetPrice) => {
+  return apiRequest(`/products/${productId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ target_price: targetPrice }),
   });
-}
+};
 
-export function deleteSaleEvent(id) {
-  return apiRequest(`/sale-events/${id}`, {
-    method: "DELETE",
-  });
-}
+// Get product insights (best time to buy)
+export const getProductInsights = (productId) => {
+  return apiRequest(`/products/${productId}/insights`);
+};
 
-// FEATURE 3: MONTHLY BUDGET TRACKER
+// Get product price drop report
+export const getProductDrops = (productId) => {
+  return apiRequest(`/products/${productId}/drops`);
+};
 
-export function setBudget(monthlyBudget, spentThisMonth = 0) {
+// Get budget plan
+export const getBudgetPlan = () => {
+  return apiRequest("/budget");
+};
+
+// Set monthly budget
+export const setBudget = (monthlyBudget, spent) => {
   return apiRequest("/budget", {
     method: "PUT",
     body: JSON.stringify({
       monthly_budget: monthlyBudget,
-      spent_this_month: spentThisMonth,
-      user_id: USER_ID,
+      spent_this_month: spent,
     }),
   });
-}
-
-export function getBudgetPlan() {
-  return apiRequest(`/budget?user_id=${USER_ID}`);
-}
+};

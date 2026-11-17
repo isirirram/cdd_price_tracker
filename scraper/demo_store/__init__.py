@@ -1,0 +1,4 @@
+"""
+Local Demonstration Storefront package.
+"""
+

@@ -1,0 +1,29 @@
+{
+  "itemsResult": {
+    "items": [
+      {
+        "asin": "B08L5W4SW6",
+        "detailPageUrl": "https://www.amazon.in/dp/B08L5W4SW6?tag=tracker-21",
+        "itemInfo": {
+          "title": {
+            "displayValue": "Apple iPhone 12 (128GB) - Blue"
+          }
+        },
+        "offersV2": {
+          "listings": [
+            {
+              "id": "offer_listing_1",
+              "price": {
+                "amount": 49999.0,
+                "currency": "INR",
+                "displayAmount": "₹49,999.00"
+              },
+              "isBuyBoxWinner": true
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+
