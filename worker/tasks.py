@@ -1,4 +1,3 @@
-
 from datetime import datetime, timezone
 from bson import ObjectId
 
@@ -7,8 +6,13 @@ from database import (
     products_collection,
     price_history_collection
 )
+
 from scraper_adapter import get_scraper_result
-from notifications import send_email_alert
+
+from notifications import (
+    send_email_alert,
+    send_telegram_alert
+)
 
 
 @celery_app.task(name="tasks.check_price")
@@ -26,16 +30,18 @@ def check_price(product_id, simulated_price=None):
     product_url = product["product_url"]
     target_price = float(product["target_price"])
 
-    # Get the user's email address
+    # Get user's email address
     user_email = product.get("user_email")
 
-    # Get current price and retention permission
+    # Get current price
     if simulated_price is not None:
+
         current_price = float(simulated_price)
         allow_history = False
         checked_at = datetime.now(timezone.utc)
 
     else:
+
         result = get_scraper_result(product_url)
 
         current_price = float(result.current_price)
@@ -56,13 +62,14 @@ def check_price(product_id, simulated_price=None):
 
     # Save price history
     if allow_history:
+
         price_history_collection.insert_one({
             "product_id": ObjectId(product_id),
             "price": current_price,
             "checked_at": checked_at
         })
 
-    # Update current price
+    # Update current price in MongoDB
     products_collection.update_one(
         {"_id": ObjectId(product_id)},
         {"$set": {"current_price": current_price}}
@@ -70,7 +77,7 @@ def check_price(product_id, simulated_price=None):
 
     alert_sent = product.get("alert_sent", False)
 
-    # Check target price
+    # Check whether target price is reached
     if current_price <= target_price:
 
         if not alert_sent:
@@ -80,6 +87,7 @@ def check_price(product_id, simulated_price=None):
                     "User email is missing for this product"
                 )
 
+            # Send Gmail notification
             send_email_alert(
                 user_email,
                 product_name,
@@ -87,16 +95,26 @@ def check_price(product_id, simulated_price=None):
                 target_price
             )
 
+            # Send Telegram notification
+            send_telegram_alert(
+                product_name,
+                current_price,
+                target_price
+            )
+
+            # Mark alert as sent only after both notifications succeed
             products_collection.update_one(
                 {"_id": ObjectId(product_id)},
                 {"$set": {"alert_sent": True}}
             )
 
-            return "Price drop email sent!"
+            return "Gmail and Telegram alerts sent successfully!"
 
         return "Alert already sent"
 
     else:
+
+        # Reset alert when price goes above target
         products_collection.update_one(
             {"_id": ObjectId(product_id)},
             {"$set": {"alert_sent": False}}
@@ -116,6 +134,7 @@ def enqueue_all_products():
     count = 0
 
     for product in products:
+
         check_price.delay(str(product["_id"]))
         count += 1
 
