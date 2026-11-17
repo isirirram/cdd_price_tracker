@@ -23,6 +23,7 @@ class ProductOut(BaseModel):
     current_price: Optional[float] = None
     alert_sent: bool = False
     notify_email: Optional[str] = None
+    image_url: Optional[str] = None
     created_at: datetime
     last_checked_at: Optional[datetime] = None
     last_error: Optional[str] = None
