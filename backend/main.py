@@ -115,11 +115,11 @@ def serialize(doc: dict) -> ProductOut:
         current_price=doc.get("current_price"),
         alert_sent=doc.get("alert_sent", False),
         notify_email=doc.get("notify_email"),
+        image_url=doc.get("image_url"),
         created_at=doc["created_at"],
         last_checked_at=doc.get("last_checked_at"),
         last_error=doc.get("last_error"),
     )
-
 
 def serialize_event(doc: dict) -> SaleEventOut:
     return SaleEventOut(
