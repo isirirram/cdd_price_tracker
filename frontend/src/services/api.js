@@ -106,3 +106,16 @@ export function setBudget(monthlyBudget, spentThisMonth = 0) {
 export function getBudgetPlan() {
   return apiRequest(`/budget?user_id=${USER_ID}`);
 }
+
+// AI PRICE ASSISTANT
+
+export function sendChatMessage(message, history = []) {
+  return apiRequest("/chat", {
+    method: "POST",
+    body: JSON.stringify({ message, history, user_id: USER_ID }),
+  });
+}
+
+export function getChatStatus() {
+  return apiRequest("/chat/status");
+}

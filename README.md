@@ -9,6 +9,7 @@ Track product prices, get an **email when a price drops to your target**, and se
 | API | FastAPI + MongoDB | `backend/` |
 | Price checker | Celery worker + Celery Beat + Redis | `worker/` |
 | Price sources | Scraper adapters (demo store, Open Prices, Amazon/Flipkart APIs) | `scraper/` |
+| AI assistant | LLM with tool calling (Groq / any OpenAI-compatible API) + offline fallback | `backend/chatbot.py` |
 | CI/CD | GitHub Actions (tests, lint, build, Docker build, push to GHCR) | `.github/workflows/` |
 
 ## Run everything
@@ -34,6 +35,17 @@ docker compose up --build
 
 Optional: `docker compose exec backend python seed_demo.py` adds 3 demo products with
 45 days of history so the insights, drop report and budget pages have data to show.
+
+## AI price assistant (💬 button, bottom-right)
+
+- **"Should I buy the laptop now?"** - explains the buy-now / wait insight, past sale drops and your target
+- **"What fits my budget?"** - best deals that fit in what's left of your monthly budget
+- **"Track http://127.0.0.1:8001/products/product-002 under 2000, email me@example.com"** - adds the product
+
+Set `LLM_API_KEY` in `.env` (free Groq key) for the AI mode: the LLM calls our own
+backend functions (tools) for every number, so it can't make up prices. Without a key,
+or if the internet is down, it automatically switches to the built-in offline assistant.
+Code: `backend/chatbot.py`, `frontend/src/components/ChatBot.jsx`.
 
 ## How a price check flows
 

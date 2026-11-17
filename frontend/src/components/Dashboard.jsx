@@ -9,10 +9,16 @@ function Dashboard({ onNavigate }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    getProducts()
-      .then(setProducts)
-      .catch((err) => setError(err.message || "Unable to load products."))
-      .finally(() => setLoading(false));
+    const load = () =>
+      getProducts()
+        .then(setProducts)
+        .catch((err) => setError(err.message || "Unable to load products."))
+        .finally(() => setLoading(false));
+
+    load();
+    // the chat assistant fires this after adding a product
+    window.addEventListener("products-changed", load);
+    return () => window.removeEventListener("products-changed", load);
   }, []);
 
   // Real numbers from the API instead of hardcoded ones

@@ -2,7 +2,6 @@ import os
 import time
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
-from urllib.parse import urlparse
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -20,14 +19,17 @@ from analytics import (
     to_naive_utc,
 )
 from database import get_db, init_db
+import chatbot
 from models import (
     BudgetSet,
+    ChatRequest,
     PricePoint,
     ProductCreate,
     ProductOut,
     SaleEventCreate,
     SaleEventOut,
 )
+from product_service import create_product
 from task_queue import queue_price_check
 
 
@@ -97,15 +99,6 @@ def to_object_id(id_str: str) -> ObjectId:
         raise HTTPException(status_code=400, detail="Invalid id")
 
 
-def detect_site(url: str) -> str:
-    host = urlparse(url).hostname or ""
-    if "amazon" in host:
-        return "amazon"
-    if "flipkart" in host:
-        return "flipkart"
-    return "other"
-
-
 def day_to_datetime(d: date) -> datetime:
     return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
 
@@ -153,22 +146,9 @@ def health(db=Depends(get_db)):
 # ------------------------------------------------- core product endpoints
 @app.post("/products", response_model=ProductOut, status_code=201)
 def add_product(payload: ProductCreate, db=Depends(get_db)):
-    url = str(payload.product_url)
-    doc = {
-        "user_id": payload.user_id,
-        "product_name": payload.product_name or "Pending first price check",
-        "product_url": url,
-        "site": detect_site(url),
-        "target_price": payload.target_price,
-        "current_price": None,
-        "alert_sent": False,
-        "alert_email": payload.alert_email,
-        "created_at": datetime.now(timezone.utc),
-    }
-    result = db.products.insert_one(doc)
-    doc["_id"] = result.inserted_id
+    doc = create_product(db, payload)
     # Get the first price now instead of waiting for the next scheduled run
-    queue_price_check(str(result.inserted_id))
+    queue_price_check(str(doc["_id"]))
     return serialize(doc)
 
 
@@ -310,3 +290,16 @@ def get_budget_plan(user_id: str = "demo-user", db=Depends(get_db)):
         averages,
     )
     return {"user_id": user_id, **plan}
+
+
+# ------------------------------------------- AI assistant (chat widget)
+@app.post("/chat")
+def chat(payload: ChatRequest, db=Depends(get_db)):
+    """Buy-now advice + add products from a sentence. See chatbot.py."""
+    history = [turn.model_dump() for turn in payload.history]
+    return chatbot.chat(db, payload.message.strip(), history, payload.user_id)
+
+
+@app.get("/chat/status")
+def chat_status():
+    return {"mode": "ai" if chatbot.llm_configured() else "offline"}

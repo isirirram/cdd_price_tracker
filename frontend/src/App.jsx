@@ -7,6 +7,7 @@ import ProductList from "./components/ProductList";
 import PriceHistory from "./components/PriceHistory";
 import Profile from "./components/Profile";
 import BudgetTracker from "./components/BudgetTracker";
+import ChatBot from "./components/ChatBot";
 
 function App() {
   const [currentPage, setCurrentPage] = useState("login");
@@ -38,6 +39,9 @@ function App() {
       {currentPage === "budget" && <BudgetTracker onNavigate={navigate} />}
 
       {currentPage === "profile" && <Profile onNavigate={navigate} />}
+
+      {/* AI assistant on every page after login */}
+      {currentPage !== "login" && currentPage !== "signup" && <ChatBot />}
     </>
   );
 }

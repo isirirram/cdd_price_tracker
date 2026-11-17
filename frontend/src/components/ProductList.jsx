@@ -30,6 +30,9 @@ function ProductList({ onNavigate }) {
 
   useEffect(() => {
     loadProducts();
+    // the chat assistant fires this after adding a product
+    window.addEventListener("products-changed", loadProducts);
+    return () => window.removeEventListener("products-changed", loadProducts);
   }, []);
 
   const handleRetry = () => {

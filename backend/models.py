@@ -59,3 +59,13 @@ class BudgetSet(BaseModel):
     monthly_budget: float = Field(gt=0)
     spent_this_month: float = Field(default=0, ge=0)
     user_id: str = "demo-user"
+
+class ChatTurn(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=1000)
+    history: list[ChatTurn] = Field(default_factory=list, max_length=40)
+    user_id: str = "demo-user"
