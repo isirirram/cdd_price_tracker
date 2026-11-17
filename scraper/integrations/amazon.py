@@ -4,6 +4,7 @@ Amazon Creators API Adapter - Slot 3 (Credential-Gated Commercial Integration).
 Implements the official Amazon Creators API specification (OAuth 2.0).
 Enforces the mandatory 1-hour price cache limitation and forbids permanent
 historical price-history retention per Amazon Operating Agreement.
+Extracts product image URLs from the primary image resource.
 """
 
 import logging
@@ -93,7 +94,8 @@ class AmazonCreatorsAdapter(BaseScraper):
                 source_category=SourceCategory.CREDENTIAL_GATED,
                 is_commercial_store=True,
                 error="Invalid Amazon URL: Could not extract valid 10-character ASIN.",
-                cache_policy=self._get_cache_policy()
+                cache_policy=self._get_cache_policy(),
+                image_url=None
             )
 
         # Check credentials
@@ -114,7 +116,8 @@ class AmazonCreatorsAdapter(BaseScraper):
                     "account with at least 10 qualifying sales in the trailing 30 days."
                 ),
                 cache_policy=self._get_cache_policy(),
-                attribution="Amazon Associates Program (Creators API)"
+                attribution="Amazon Associates Program (Creators API)",
+                image_url=None
             )
 
         # Real API request logic
@@ -135,7 +138,8 @@ class AmazonCreatorsAdapter(BaseScraper):
                     source_category=SourceCategory.CREDENTIAL_GATED,
                     is_commercial_store=True,
                     error=f"Amazon OAuth 2.0 authentication failed (HTTP {token_resp.status_code}). Verify credential eligibility.",
-                    cache_policy=self._get_cache_policy()
+                    cache_policy=self._get_cache_policy(),
+                    image_url=None
                 )
             access_token = token_resp.json().get("access_token")
 
@@ -152,7 +156,8 @@ class AmazonCreatorsAdapter(BaseScraper):
                 "marketplace": "www.amazon.in",
                 "resources": [
                     "itemInfo.title",
-                    "offersV2.listings.price"
+                    "offersV2.listings.price",
+                    "images.primary.large"
                 ]
             }
             api_resp = requests.post(self.CREATORS_API_ENDPOINT, json=body, headers=headers, timeout=10)
@@ -164,7 +169,8 @@ class AmazonCreatorsAdapter(BaseScraper):
                     source_category=SourceCategory.CREDENTIAL_GATED,
                     is_commercial_store=True,
                     error=f"Amazon Creators API request failed (HTTP {api_resp.status_code}): {api_resp.text}",
-                    cache_policy=self._get_cache_policy()
+                    cache_policy=self._get_cache_policy(),
+                    image_url=None
                 )
 
             data = api_resp.json()
@@ -178,7 +184,8 @@ class AmazonCreatorsAdapter(BaseScraper):
                 source_category=SourceCategory.CREDENTIAL_GATED,
                 is_commercial_store=True,
                 error="Timeout connecting to Amazon Creators API.",
-                cache_policy=self._get_cache_policy()
+                cache_policy=self._get_cache_policy(),
+                image_url=None
             )
         except Exception as e:
             logger.error(f"Amazon Creators API exception: {e}")
@@ -189,7 +196,8 @@ class AmazonCreatorsAdapter(BaseScraper):
                 source_category=SourceCategory.CREDENTIAL_GATED,
                 is_commercial_store=True,
                 error=f"Amazon Creators API error: {str(e)}",
-                cache_policy=self._get_cache_policy()
+                cache_policy=self._get_cache_policy(),
+                image_url=None
             )
 
     def _parse_api_response(self, data: dict, asin: str, url: str) -> ScraperResult:
@@ -203,7 +211,8 @@ class AmazonCreatorsAdapter(BaseScraper):
                 source_category=SourceCategory.CREDENTIAL_GATED,
                 is_commercial_store=True,
                 error=f"Product with ASIN '{asin}' was not found in Amazon India catalog.",
-                cache_policy=self._get_cache_policy()
+                cache_policy=self._get_cache_policy(),
+                image_url=None
             )
 
         item = items[0]
@@ -218,7 +227,8 @@ class AmazonCreatorsAdapter(BaseScraper):
                 source_category=SourceCategory.CREDENTIAL_GATED,
                 is_commercial_store=True,
                 error=f"No active offers or price listings found for ASIN '{asin}'.",
-                cache_policy=self._get_cache_policy()
+                cache_policy=self._get_cache_policy(),
+                image_url=None
             )
 
         price_obj = listings[0].get("price", {})
@@ -234,14 +244,31 @@ class AmazonCreatorsAdapter(BaseScraper):
                 source_category=SourceCategory.CREDENTIAL_GATED,
                 is_commercial_store=True,
                 error=f"Could not extract numeric price for ASIN '{asin}'.",
-                cache_policy=self._get_cache_policy()
+                cache_policy=self._get_cache_policy(),
+                image_url=None
             )
+
+        # Extract primary product image URL if present
+        image_url = None
+        images = item.get("images", {}).get("primary", {})
+        for size_key in ("large", "medium", "small"):
+            size_obj = images.get(size_key)
+            if isinstance(size_obj, dict) and size_obj.get("url"):
+                image_url = size_obj["url"]
+                break
+        if not image_url and isinstance(images.get("url"), str):
+            image_url = images["url"]
+
+        valid_image_url = (
+            image_url if (image_url and (image_url.startswith("http://") or image_url.startswith("https://"))) else None
+        )
 
         return ScraperResult(
             success=True,
             product_name=title or f"Amazon Product ({asin})",
             current_price=normalized_price,
             currency=currency,
+            image_url=valid_image_url,
             site=self.SITE_NAME,
             product_url=url,
             source_category=SourceCategory.CREDENTIAL_GATED,
@@ -250,4 +277,3 @@ class AmazonCreatorsAdapter(BaseScraper):
             cache_policy=self._get_cache_policy(),
             attribution="Amazon product data sourced via official Creators API. Price and availability accurate as of checked timestamp."
         )
-

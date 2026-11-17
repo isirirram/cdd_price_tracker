@@ -96,4 +96,73 @@ def test_scraper_result_failure_without_cache_policy():
     assert result.success is False
     assert result.cache_policy is None
     assert result.error == "Policy restricted"
+    assert result.image_url is None
+
+
+def test_scraper_result_image_url_validation():
+    """Verify image_url handling: default None, valid HTTP/HTTPS URLs, and invalid URL rejection."""
+    # 1. Default is None
+    res_default = ScraperResult(
+        success=True,
+        product_name="Sample",
+        current_price=100.0,
+        site="local_store",
+        product_url="http://127.0.0.1:8000/products/p1",
+        source_category=SourceCategory.CONTROLLED_DEMO_STORE,
+        is_commercial_store=False
+    )
+    assert res_default.image_url is None
+
+    # 2. Valid HTTPS image URL
+    res_https = ScraperResult(
+        success=True,
+        product_name="Sample",
+        current_price=100.0,
+        site="local_store",
+        product_url="http://127.0.0.1:8000/products/p1",
+        source_category=SourceCategory.CONTROLLED_DEMO_STORE,
+        is_commercial_store=False,
+        image_url="https://images.example.com/product.jpg"
+    )
+    assert res_https.image_url == "https://images.example.com/product.jpg"
+
+    # 3. Valid HTTP image URL
+    res_http = ScraperResult(
+        success=True,
+        product_name="Sample",
+        current_price=100.0,
+        site="local_store",
+        product_url="http://127.0.0.1:8000/products/p1",
+        source_category=SourceCategory.CONTROLLED_DEMO_STORE,
+        is_commercial_store=False,
+        image_url="http://127.0.0.1:8000/static/product.png"
+    )
+    assert res_http.image_url == "http://127.0.0.1:8000/static/product.png"
+
+    # 4. Invalid URL scheme (e.g., ftp:// or file://) raises ValidationError
+    with pytest.raises(ValidationError):
+        ScraperResult(
+            success=True,
+            product_name="Sample",
+            current_price=100.0,
+            site="local_store",
+            product_url="http://127.0.0.1:8000/products/p1",
+            source_category=SourceCategory.CONTROLLED_DEMO_STORE,
+            is_commercial_store=False,
+            image_url="ftp://example.com/image.jpg"
+        )
+
+    # 5. Invalid URL without scheme raises ValidationError
+    with pytest.raises(ValidationError):
+        ScraperResult(
+            success=True,
+            product_name="Sample",
+            current_price=100.0,
+            site="local_store",
+            product_url="http://127.0.0.1:8000/products/p1",
+            source_category=SourceCategory.CONTROLLED_DEMO_STORE,
+            is_commercial_store=False,
+            image_url="not_a_valid_url"
+        )
+
 

@@ -2,7 +2,7 @@
 Self-contained Local Demonstration Storefront Server.
 
 Runs exclusively on loopback (127.0.0.1) using Python's standard library http.server.
-Provides product queries and dynamic price updates for project evaluation and live alerts.
+Provides product queries, image URLs, and dynamic price updates for project evaluation and live alerts.
 """
 
 import argparse
@@ -23,7 +23,8 @@ DEFAULT_CATALOG: Dict[str, Dict[str, Any]] = {
         "price": 1499.0,
         "currency": "INR",
         "in_stock": True,
-        "category": "Audio"
+        "category": "Audio",
+        "image_url": "http://127.0.0.1:8000/static/product-001.jpg"
     },
     "product-002": {
         "id": "product-002",
@@ -31,7 +32,8 @@ DEFAULT_CATALOG: Dict[str, Dict[str, Any]] = {
         "price": 2499.0,
         "currency": "INR",
         "in_stock": True,
-        "category": "Wearables"
+        "category": "Wearables",
+        "image_url": "http://127.0.0.1:8000/static/product-002.jpg"
     },
     "product-003": {
         "id": "product-003",
@@ -39,7 +41,8 @@ DEFAULT_CATALOG: Dict[str, Dict[str, Any]] = {
         "price": 3999.0,
         "currency": "INR",
         "in_stock": True,
-        "category": "Peripherals"
+        "category": "Peripherals",
+        "image_url": "http://127.0.0.1:8000/static/product-003.jpg"
     },
     "product-004": {
         "id": "product-004",
@@ -47,7 +50,8 @@ DEFAULT_CATALOG: Dict[str, Dict[str, Any]] = {
         "price": 899.0,
         "currency": "INR",
         "in_stock": True,
-        "category": "Peripherals"
+        "category": "Peripherals",
+        "image_url": "http://127.0.0.1:8000/static/product-004.jpg"
     },
     "product-005": {
         "id": "product-005",
@@ -55,7 +59,8 @@ DEFAULT_CATALOG: Dict[str, Dict[str, Any]] = {
         "price": 4999.0,
         "currency": "INR",
         "in_stock": True,
-        "category": "Cameras"
+        "category": "Cameras",
+        "image_url": "http://127.0.0.1:8000/static/product-005.jpg"
     }
 }
 
@@ -168,6 +173,7 @@ class DemoStoreRequestHandler(BaseHTTPRequestHandler):
                 "previous_price": old_price,
                 "current_price": round(new_price, 2),
                 "currency": "INR",
+                "image_url": CATALOG[product_id].get("image_url"),
                 "message": "Price updated successfully. Price tracker will detect change on next check."
             })
             return

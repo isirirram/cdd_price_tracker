@@ -2,7 +2,7 @@
 Open Prices (Open Food Facts) Adapter - Slot 1 (Open-Data Price Observation Source).
 
 Queries the open crowd-sourced Open Prices REST API (ODbL 1.0).
-Extracts product barcodes and real price observations in INR.
+Extracts product barcodes, real price observations in INR, and product image URLs.
 """
 
 import logging
@@ -75,7 +75,7 @@ class OpenPricesAdapter(BaseScraper):
         )
 
     def scrape(self, url: str) -> ScraperResult:
-        """Query Open Prices API and return standardized ScraperResult."""
+        """Query Open Prices API and return standardized ScraperResult with image URL."""
         barcode = self.extract_product_id(url)
         if not barcode:
             return ScraperResult(
@@ -88,7 +88,8 @@ class OpenPricesAdapter(BaseScraper):
                     "Invalid Open Prices URL: A valid 8 to 14 digit numeric barcode could not be extracted. "
                     "Expected format: https://in.openfoodfacts.org/product/<barcode> or barcode:<digits>"
                 ),
-                cache_policy=None
+                cache_policy=None,
+                image_url=None
             )
 
         headers = {"User-Agent": config.open_prices_user_agent}
@@ -110,7 +111,8 @@ class OpenPricesAdapter(BaseScraper):
                     source_category=SourceCategory.OPEN_DATA_OBSERVATION,
                     is_commercial_store=False,
                     error=f"No price observations found for barcode '{barcode}' in Open Prices.",
-                    cache_policy=self._get_cache_policy()
+                    cache_policy=self._get_cache_policy(),
+                    image_url=None
                 )
             resp.raise_for_status()
             data = resp.json()
@@ -122,7 +124,8 @@ class OpenPricesAdapter(BaseScraper):
                 source_category=SourceCategory.OPEN_DATA_OBSERVATION,
                 is_commercial_store=False,
                 error="Network timeout while connecting to Open Prices API.",
-                cache_policy=None
+                cache_policy=None,
+                image_url=None
             )
         except requests.RequestException as e:
             logger.error(f"Open Prices request failed: {e}")
@@ -133,7 +136,8 @@ class OpenPricesAdapter(BaseScraper):
                 source_category=SourceCategory.OPEN_DATA_OBSERVATION,
                 is_commercial_store=False,
                 error=f"Open Prices API request error: {str(e)}",
-                cache_policy=None
+                cache_policy=None,
+                image_url=None
             )
 
         items = data.get("items", [])
@@ -146,7 +150,8 @@ class OpenPricesAdapter(BaseScraper):
                 is_commercial_store=False,
                 error=f"Product barcode {barcode} recognized, but zero price observations recorded in Open Prices.",
                 cache_policy=self._get_cache_policy(),
-                attribution="Price data sourced from Open Food Facts / Open Prices under ODbL 1.0"
+                attribution="Price data sourced from Open Food Facts / Open Prices under ODbL 1.0",
+                image_url=None
             )
 
         # Select price observation: prefer INR, else most recent
@@ -171,16 +176,19 @@ class OpenPricesAdapter(BaseScraper):
                 is_commercial_store=False,
                 error=f"Invalid or missing price value in Open Prices observation for barcode {barcode}.",
                 cache_policy=self._get_cache_policy(),
-                attribution="Price data sourced from Open Food Facts / Open Prices under ODbL 1.0"
+                attribution="Price data sourced from Open Food Facts / Open Prices under ODbL 1.0",
+                image_url=None
             )
 
-        # Step 2: Retrieve product title from Open Food Facts catalog if available
+        # Step 2: Retrieve product title and image URL from Open Food Facts catalog if available
         product_name = selected_item.get("product_name")
-        if not product_name:
+        image_url = selected_item.get("image_url")
+
+        if not product_name or not image_url:
             try:
                 prod_resp = requests.get(
                     f"{self.PRODUCT_API_URL}/{barcode}.json",
-                    params={"fields": "product_name,brands"},
+                    params={"fields": "product_name,brands,image_url,image_front_url"},
                     headers=headers,
                     timeout=5
                 )
@@ -188,10 +196,13 @@ class OpenPricesAdapter(BaseScraper):
                     prod_data = prod_resp.json().get("product", {})
                     name = prod_data.get("product_name")
                     brand = prod_data.get("brands")
-                    if name and brand:
-                        product_name = f"{brand} - {name}"
-                    elif name:
-                        product_name = name
+                    if not product_name:
+                        if name and brand:
+                            product_name = f"{brand} - {name}"
+                        elif name:
+                            product_name = name
+                    if not image_url:
+                        image_url = prod_data.get("image_url") or prod_data.get("image_front_url")
             except Exception:
                 pass
 
@@ -203,6 +214,7 @@ class OpenPricesAdapter(BaseScraper):
             product_name=product_name,
             current_price=normalized_price,
             currency=currency,
+            image_url=image_url if (image_url and (image_url.startswith("http://") or image_url.startswith("https://"))) else None,
             site=self.SITE_NAME,
             product_url=url,
             source_category=SourceCategory.OPEN_DATA_OBSERVATION,
@@ -211,4 +223,3 @@ class OpenPricesAdapter(BaseScraper):
             cache_policy=self._get_cache_policy(),
             attribution="Price data sourced from Open Food Facts / Open Prices under ODbL 1.0"
         )
-

@@ -36,7 +36,9 @@ def display_result(result):
     if result.success:
         print(f"Product Title:      {result.product_name}")
         print(f"Current Price:      {result.currency} {result.current_price:,.2f}")
+        print(f"Product Image:      {result.image_url or 'None'}")
     else:
+        print(f"Product Image:      {result.image_url or 'None'}")
         print(f"Error Message:      {result.error}")
 
     if result.cache_policy:

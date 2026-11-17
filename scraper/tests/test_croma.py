@@ -47,6 +47,7 @@ def test_croma_makes_zero_network_requests_and_refuses_scraping(mock_post, mock_
     assert result.source_category == SourceCategory.POLICY_RESTRICTED
     assert result.is_commercial_store is True
     assert result.cache_policy is None  # Strictly None, no dummy object
+    assert result.image_url is None
     assert "Terms of Use" in result.error
     assert "Section 12" in result.error
 

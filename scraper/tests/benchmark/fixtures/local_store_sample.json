@@ -3,6 +3,7 @@
   "title": "Demo Wireless Noise-Cancelling Headphones",
   "price": 1499.0,
   "currency": "INR",
+  "image_url": "http://127.0.0.1:8000/static/product-001.jpg",
   "in_stock": true,
   "category": "Audio"
 }

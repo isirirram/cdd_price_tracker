@@ -178,6 +178,7 @@ result.success              # bool: True if extraction succeeded, False if faile
 result.product_name         # Optional[str]: Clean title
 result.current_price        # Optional[float]: Numeric price in INR (e.g. 1499.0)
 result.currency             # str: "INR"
+result.image_url            # Optional[str]: Validated HTTP/HTTPS URL of primary product image, or None
 result.site                 # str: "open_prices", "local_store", "amazon", "flipkart", "croma"
 result.source_category      # SourceCategory: OPEN_DATA_OBSERVATION, CONTROLLED_DEMO_STORE, etc.
 result.is_commercial_store  # bool: False for Open Prices and LocalStore
@@ -204,6 +205,7 @@ if result.current_price <= product.target_price:
         user_id=product.user_id,
         product=result.product_name,
         price=result.current_price,
+        image_url=result.image_url,
         attribution=result.attribution
     )
 
@@ -219,11 +221,13 @@ else:
     # PROHIBITED: Do NOT insert into price_history (e.g. Amazon / Flipkart licenses)
     logger.info(f"Skipping price history insert for {result.site}: license forbids permanent retention.")
 
-# 3. Product Collection Update with Cache Expiration TTL
+# 3. Product Collection Update with Cache Expiration TTL and Product Image
 update_data = {
     "current_price": result.current_price,
     "last_checked_at": result.checked_at
 }
+if result.image_url:
+    update_data["image_url"] = result.image_url
 if result.cache_policy and result.cache_policy.price_ttl_seconds:
     update_data["price_expires_at"] = result.checked_at + timedelta(seconds=result.cache_policy.price_ttl_seconds)
 

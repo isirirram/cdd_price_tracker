@@ -2,7 +2,7 @@
 LocalStore Adapter - Slot 2 (Controlled Demonstration Storefront).
 
 Connects to the self-contained local demonstration server (127.0.0.1:8000).
-Enables deterministic live price drop simulation for project evaluation.
+Enables deterministic live price drop simulation and image extraction for project evaluation.
 """
 
 import logging
@@ -77,7 +77,7 @@ class LocalStoreAdapter(BaseScraper):
         )
 
     def scrape(self, url: str) -> ScraperResult:
-        """Query the local demonstration store and return ScraperResult."""
+        """Query the local demonstration store and return ScraperResult with image URL."""
         product_id = self.extract_product_id(url)
         if not product_id:
             return ScraperResult(
@@ -87,7 +87,8 @@ class LocalStoreAdapter(BaseScraper):
                 source_category=SourceCategory.CONTROLLED_DEMO_STORE,
                 is_commercial_store=False,
                 error="Invalid LocalStore URL: A valid product ID (alphanumeric, hyphens) could not be extracted.",
-                cache_policy=None
+                cache_policy=None,
+                image_url=None
             )
 
         base_url = config.local_store_url
@@ -103,7 +104,8 @@ class LocalStoreAdapter(BaseScraper):
                     source_category=SourceCategory.CONTROLLED_DEMO_STORE,
                     is_commercial_store=False,
                     error=f"Product with ID '{product_id}' not found in LocalStore demonstration catalog.",
-                    cache_policy=self._get_cache_policy()
+                    cache_policy=self._get_cache_policy(),
+                    image_url=None
                 )
             resp.raise_for_status()
             data = resp.json()
@@ -118,7 +120,8 @@ class LocalStoreAdapter(BaseScraper):
                     f"Local demonstration store is offline at {base_url}. "
                     "Start it using: python scraper/demo_store/server.py --port 8000"
                 ),
-                cache_policy=None
+                cache_policy=None,
+                image_url=None
             )
         except requests.exceptions.Timeout:
             return ScraperResult(
@@ -128,7 +131,8 @@ class LocalStoreAdapter(BaseScraper):
                 source_category=SourceCategory.CONTROLLED_DEMO_STORE,
                 is_commercial_store=False,
                 error="Timeout connecting to LocalStore demonstration server.",
-                cache_policy=None
+                cache_policy=None,
+                image_url=None
             )
         except Exception as e:
             logger.error(f"Error querying LocalStore: {e}")
@@ -139,12 +143,14 @@ class LocalStoreAdapter(BaseScraper):
                 source_category=SourceCategory.CONTROLLED_DEMO_STORE,
                 is_commercial_store=False,
                 error=f"LocalStore API error: {str(e)}",
-                cache_policy=None
+                cache_policy=None,
+                image_url=None
             )
 
         title = data.get("title") or f"Demo Product ({product_id})"
         raw_price = data.get("price")
         currency = data.get("currency", "INR")
+        image_url = data.get("image_url")
         normalized_price = self.normalize_price(raw_price)
 
         if normalized_price is None:
@@ -155,7 +161,8 @@ class LocalStoreAdapter(BaseScraper):
                 source_category=SourceCategory.CONTROLLED_DEMO_STORE,
                 is_commercial_store=False,
                 error=f"LocalStore response for '{product_id}' contained no valid numeric price.",
-                cache_policy=self._get_cache_policy()
+                cache_policy=self._get_cache_policy(),
+                image_url=None
             )
 
         return ScraperResult(
@@ -163,6 +170,7 @@ class LocalStoreAdapter(BaseScraper):
             product_name=title,
             current_price=normalized_price,
             currency=currency,
+            image_url=image_url if (image_url and (image_url.startswith("http://") or image_url.startswith("https://"))) else None,
             site=self.SITE_NAME,
             product_url=url,
             source_category=SourceCategory.CONTROLLED_DEMO_STORE,
@@ -171,4 +179,3 @@ class LocalStoreAdapter(BaseScraper):
             cache_policy=self._get_cache_policy(),
             attribution="Sourced from Controlled Demonstration Storefront for System Evaluation"
         )
-

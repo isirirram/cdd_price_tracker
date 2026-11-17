@@ -62,6 +62,10 @@ class ScraperResult(BaseModel):
         default="INR",
         description="Three-letter ISO currency code (default: INR)."
     )
+    image_url: Optional[str] = Field(
+        default=None,
+        description="Direct HTTP/HTTPS URL to the product image if available."
+    )
     site: str = Field(
         ...,
         description="Target site identifier (e.g., 'open_prices', 'local_store', 'amazon', 'flipkart', 'croma')."
@@ -102,3 +106,14 @@ class ScraperResult(BaseModel):
             raise ValueError("Price must be a non-negative number.")
         return v
 
+    @field_validator("image_url")
+    @classmethod
+    def validate_image_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        clean = v.strip()
+        if not clean:
+            return None
+        if not (clean.startswith("http://") or clean.startswith("https://")):
+            raise ValueError("Image URL must start with http:// or https://")
+        return clean
