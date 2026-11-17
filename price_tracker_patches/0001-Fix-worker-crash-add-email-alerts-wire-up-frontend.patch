@@ -1,0 +1,1916 @@
+From 620559da049a63fd0d128134631909195dc088dc Mon Sep 17 00:00:00 2001
+From: Siri <2025cs_isirirram_c@nie.ac.in>
+Date: Tue, 17 Nov 2026 13:20:09 +0000
+Subject: [PATCH 1/2] Fix worker crash, add email alerts, wire up frontend
+
+- worker: tasks.py imported the deleted notifications module, so the worker
+  and beat crashed on start. Add SMTP email notifications instead of Telegram.
+- worker: record last_error / last_checked_at, configurable check interval,
+  demo_price.py helper, unit tests (now run in CI).
+- backend: alert_email field, queue a price check on add, POST /products/{id}/check,
+  CORS for 127.0.0.1 origins + CORS_ORIGINS env.
+- frontend: Add Product button now works, dashboard uses real data,
+  Check Now button, shared Header, View History opens the right product.
+- docs: run + demo instructions, .env.example for SMTP.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019qXqFJU1trbYJKBYh6qvFo
+---
+ .env.example                              |  22 ++-
+ .github/workflows/ci.yml                  |  12 +-
+ README.md                                 |  51 +++++++
+ backend/README.md                         |   6 +-
+ backend/database.py                       |   3 +
+ backend/main.py                           |  35 ++++-
+ backend/models.py                         |   8 ++
+ backend/requirements.txt                  |   4 +-
+ backend/task_queue.py                     |  36 +++++
+ backend/tests/test_products.py            |  44 +++++-
+ docker-compose.yml                        |   7 +
+ frontend/src/App.jsx                      |  35 ++---
+ frontend/src/components/AddProduct.jsx    |  40 ++++--
+ frontend/src/components/BudgetTracker.jsx |  13 +-
+ frontend/src/components/Dashboard.jsx     | 120 ++++++++---------
+ frontend/src/components/Header.jsx        |  34 ++---
+ frontend/src/components/PriceHistory.jsx  |  44 +++---
+ frontend/src/components/ProductCard.jsx   |  67 +++++++---
+ frontend/src/components/ProductList.jsx   | 150 ++++++++++-----------
+ frontend/src/components/Profile.jsx       |  13 +-
+ frontend/src/services/api.js              |  14 +-
+ frontend/src/utils/productStatus.js       |  16 +++
+ worker/celery_app.py                      |   9 +-
+ worker/demo_price.py                      |  44 ++++++
+ worker/notifications.py                   | 102 ++++++++++++++
+ worker/pytest.ini                         |   2 +
+ worker/tasks.py                           | 144 ++++++++++----------
+ worker/tests/__init__.py                  |   0
+ worker/tests/conftest.py                  |  18 +++
+ worker/tests/test_tasks.py                | 156 ++++++++++++++++++++++
+ 30 files changed, 901 insertions(+), 348 deletions(-)
+ create mode 100644 backend/task_queue.py
+ create mode 100644 frontend/src/utils/productStatus.js
+ create mode 100644 worker/demo_price.py
+ create mode 100644 worker/notifications.py
+ create mode 100644 worker/pytest.ini
+ create mode 100644 worker/tests/__init__.py
+ create mode 100644 worker/tests/conftest.py
+ create mode 100644 worker/tests/test_tasks.py
+
+diff --git a/.env.example b/.env.example
+index 626dcbf..50a72b7 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,5 +1,6 @@
+ 
+ # Smart Price Tracker - Root Environment Configuration
++# Copy this file to .env and fill in what you need. Never commit .env.
+ 
+ # Backend / MongoDB
+ MONGO_URI=mongodb://mongo:27017/price_tracker
+@@ -7,9 +8,16 @@ MONGO_URI=mongodb://mongo:27017/price_tracker
+ # Redis / Celery
+ REDIS_URL=redis://redis:6379/0
+ 
++# How often Celery Beat re-checks every product (seconds).
++# 21600 = 6 hours. Use 60 during the expo demo.
++CHECK_INTERVAL_SECONDS=21600
++
+ # Frontend API
+ VITE_API_URL=http://localhost:8000
+ 
++# Extra allowed frontend origins, comma-separated (e.g. another laptop on the LAN)
++CORS_ORIGINS=
++
+ # Scraper - Open Prices
+ OPEN_PRICES_USER_AGENT=SmartPriceTracker/1.0 (CollegeProject; contact: student@example.edu)
+ 
+@@ -25,11 +33,13 @@ AMAZON_PARTNER_TAG=
+ FLIPKART_AFFILIATE_ID=
+ FLIPKART_AFFILIATE_TOKEN=
+ 
+-# Optional Telegram notifications
+-TELEGRAM_BOT_TOKEN=
+-TELEGRAM_CHAT_ID=
+-
+-# Optional email notifications
+-SMTP_HOST=
++# Email alerts (price drop notifications)
++# Gmail: turn on 2-Step Verification, then create an App Password and use it
++# as SMTP_PASSWORD (your normal Gmail password will NOT work).
++SMTP_HOST=smtp.gmail.com
++SMTP_PORT=587
+ SMTP_USER=
+ SMTP_PASSWORD=
++SMTP_FROM=
++# Used when a product was added without its own alert email
++ALERT_EMAIL_TO=
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index fe33335..7db6c6b 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -9,7 +9,7 @@ on:
+ 
+ jobs:
+   backend-and-scraper-tests:
+-    name: Backend and Scraper Tests
++    name: Backend, Scraper and Worker Tests
+     runs-on: ubuntu-latest
+ 
+     steps:
+@@ -26,8 +26,10 @@ jobs:
+           python -m pip install --upgrade pip
+           pip install -r backend/requirements.txt
+ 
+-      - name: Install scraper dependencies
+-        run: pip install -r scraper/requirements.txt
++      - name: Install scraper and worker dependencies
++        run: |
++          pip install -r scraper/requirements.txt
++          pip install -r worker/requirements.txt mongomock
+ 
+       - name: Run backend tests
+         run: python -m pytest backend/tests -v
+@@ -35,6 +37,10 @@ jobs:
+       - name: Run scraper tests
+         run: python -m pytest scraper/tests -v
+ 
++      # Catches things like a missing import that would crash the worker
++      - name: Run worker tests
++        run: python -m pytest worker/tests -v
++
+   frontend-check:
+     name: Frontend Lint and Build
+     runs-on: ubuntu-latest
+diff --git a/README.md b/README.md
+index 37f76dd..270b141 100644
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,54 @@
++# Smart Price Tracker with Email Alerts
++
++Track product prices, get an **email when a price drops to your target**, and see
++"best time to buy" insights, sale-event drop analysis and a budget planner.
++
++| Part | Tech | Folder |
++|---|---|---|
++| Frontend | React + Vite (served by nginx) | `frontend/` |
++| API | FastAPI + MongoDB | `backend/` |
++| Price checker | Celery worker + Celery Beat + Redis | `worker/` |
++| Price sources | Scraper adapters (demo store, Open Prices, Amazon/Flipkart APIs) | `scraper/` |
++| CI/CD | GitHub Actions (tests, lint, build, Docker build, push to GHCR) | `.github/workflows/` |
++
++## Run everything
++
++```bash
++cp .env.example .env      # fill in SMTP_* to get real emails; CHECK_INTERVAL_SECONDS=60 for demos
++docker compose up --build
++```
++
++- Frontend: http://localhost:3000
++- API docs (Swagger): http://localhost:8000/docs
++
++## Live demo of a price-drop alert
++
++1. In the frontend, add `http://127.0.0.1:8001/products/product-001` with target price `1200`
++   and your email. Within a few seconds it shows the demo store price (₹1,499).
++2. Drop the price on the demo store (it lives inside the worker container):
++   ```bash
++   docker compose exec worker python demo_price.py product-001 999
++   ```
++3. Click **Check Now** (or wait a few seconds) — the price becomes ₹999, the card shows
++   "Target reached · alert sent ✓", and the email arrives.
++
++Optional: `docker compose exec backend python seed_demo.py` adds 3 demo products with
++45 days of history so the insights, drop report and budget pages have data to show.
++
++## How a price check flows
++
++```
++Frontend --POST /products--> FastAPI --saves--> MongoDB
++                               |
++                               +--"tasks.check_price"--> Redis --> Celery worker
++                                                                     | scraper adapter -> current price
++                                                                     | save price + history to MongoDB
++                                                                     | price <= target? -> send email
++Celery Beat --every CHECK_INTERVAL_SECONDS--> "tasks.enqueue_all_products"
++```
++
++---
++
+ # Smart Price Tracker – Scraper & Price Extraction Module
+ 
+ ## 1. Overview
+diff --git a/backend/README.md b/backend/README.md
+index 2b98e47..a3900fd 100644
+--- a/backend/README.md
++++ b/backend/README.md
+@@ -94,8 +94,8 @@ Names are shared by every service (see `.env.example` in the repo root).
+ |---|---|---|
+ | `MONGO_URI` | backend, worker | `mongodb://localhost:27017/price_tracker` |
+ | `REDIS_URL` | worker | `redis://localhost:6379` |
+-| `TELEGRAM_BOT_TOKEN` | worker | (from BotFather) |
+-| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` | worker | (email alerts, stretch goal) |
++| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `ALERT_EMAIL_TO` | worker | email price-drop alerts (Gmail needs an App Password) |
++| `REDIS_URL` | backend, worker | lets the API queue an immediate price check |
+ 
+ **Important: the database name is part of `MONGO_URI`** (`.../price_tracker`).
+ Everyone must use the same URI so all services read and write the same
+@@ -300,7 +300,7 @@ db.products.update_one(
+ ```
+ 
+ For the budget alert, call `GET /budget` after each round of checks and send
+-the `recommended` list on Telegram.
++the `recommended` list by email.
+ 
+ ### Person 4: Frontend
+ 
+diff --git a/backend/database.py b/backend/database.py
+index 5f3fa0a..4a00813 100644
+--- a/backend/database.py
++++ b/backend/database.py
+@@ -34,7 +34,10 @@ PRODUCTS_VALIDATOR = {
+             "target_price": {"bsonType": NUMBER},
+             "current_price": {"bsonType": NUMBER + ["null"]},
+             "alert_sent": {"bsonType": "bool"},
++            "alert_email": {"bsonType": ["string", "null"]},
+             "created_at": {"bsonType": "date"},
++            "last_checked_at": {"bsonType": ["date", "null"]},
++            "last_error": {"bsonType": ["string", "null"]},
+         },
+     }
+ }
+diff --git a/backend/main.py b/backend/main.py
+index f698f8e..8baae61 100644
+--- a/backend/main.py
++++ b/backend/main.py
+@@ -1,3 +1,4 @@
++import os
+ import time
+ from contextlib import asynccontextmanager
+ from datetime import date, datetime, timezone
+@@ -27,6 +28,7 @@ from models import (
+     SaleEventCreate,
+     SaleEventOut,
+ )
++from task_queue import queue_price_check
+ 
+ 
+ def init_db_with_retry(attempts: int = 5, delay: int = 3) -> None:
+@@ -54,10 +56,21 @@ async def lifespan(app: FastAPI):
+ 
+ app = FastAPI(title="Smart Price Tracker API", lifespan=lifespan)
+ 
+-# Lets the React frontend (Vite = 5173, CRA = 3000) call this API
++# Lets the React frontend (Vite dev = 5173, Docker/nginx = 3000) call this API.
++# Browsers treat localhost and 127.0.0.1 as different origins, so allow both.
++# Extra origins (e.g. a teammate's laptop IP at the expo) can be added with
++# CORS_ORIGINS=http://192.168.1.20:3000,http://...
++DEFAULT_ORIGINS = [
++    "http://localhost:5173",
++    "http://127.0.0.1:5173",
++    "http://localhost:3000",
++    "http://127.0.0.1:3000",
++]
++EXTRA_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
++
+ app.add_middleware(
+     CORSMiddleware,
+-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
++    allow_origins=DEFAULT_ORIGINS + EXTRA_ORIGINS,
+     allow_methods=["*"],
+     allow_headers=["*"],
+ )
+@@ -107,7 +120,10 @@ def serialize(doc: dict) -> ProductOut:
+         target_price=doc["target_price"],
+         current_price=doc.get("current_price"),
+         alert_sent=doc.get("alert_sent", False),
++        alert_email=doc.get("alert_email"),
+         created_at=doc["created_at"],
++        last_checked_at=doc.get("last_checked_at"),
++        last_error=doc.get("last_error"),
+     )
+ 
+ 
+@@ -146,10 +162,13 @@ def add_product(payload: ProductCreate, db=Depends(get_db)):
+         "target_price": payload.target_price,
+         "current_price": None,
+         "alert_sent": False,
++        "alert_email": payload.alert_email,
+         "created_at": datetime.now(timezone.utc),
+     }
+     result = db.products.insert_one(doc)
+     doc["_id"] = result.inserted_id
++    # Get the first price now instead of waiting for the next scheduled run
++    queue_price_check(str(result.inserted_id))
+     return serialize(doc)
+ 
+ 
+@@ -171,6 +190,18 @@ def get_history(product_id: str, db=Depends(get_db)):
+     return [PricePoint(price=r["price"], checked_at=r["checked_at"]) for r in rows]
+ 
+ 
++@app.post("/products/{product_id}/check", status_code=202)
++def check_now(product_id: str, db=Depends(get_db)):
++    """'Check now' button: ask the worker to re-check this product immediately."""
++    product = get_product_or_404(db, product_id)
++    if not queue_price_check(str(product["_id"])):
++        raise HTTPException(
++            status_code=503,
++            detail="Price checker is not running (REDIS_URL not set or Redis is down)",
++        )
++    return {"message": "Price check queued", "product_id": product_id}
++
++
+ @app.delete("/products/{product_id}")
+ def delete_product(product_id: str, db=Depends(get_db)):
+     oid = to_object_id(product_id)
+diff --git a/backend/models.py b/backend/models.py
+index 3ff4132..eefa443 100644
+--- a/backend/models.py
++++ b/backend/models.py
+@@ -4,11 +4,16 @@ from typing import Optional
+ from pydantic import BaseModel, Field, HttpUrl, model_validator
+ 
+ 
++EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
++
++
+ class ProductCreate(BaseModel):
+     product_url: HttpUrl
+     target_price: float = Field(gt=0)
+     product_name: Optional[str] = None
+     user_id: str = "demo-user"
++    # Where the price-drop email goes. Optional: falls back to ALERT_EMAIL_TO.
++    alert_email: Optional[str] = Field(default=None, pattern=EMAIL_PATTERN)
+ 
+ 
+ class ProductOut(BaseModel):
+@@ -20,7 +25,10 @@ class ProductOut(BaseModel):
+     target_price: float
+     current_price: Optional[float] = None
+     alert_sent: bool = False
++    alert_email: Optional[str] = None
+     created_at: datetime
++    last_checked_at: Optional[datetime] = None
++    last_error: Optional[str] = None
+ 
+ 
+ class PricePoint(BaseModel):
+diff --git a/backend/requirements.txt b/backend/requirements.txt
+index 407d891..4505380 100644
+--- a/backend/requirements.txt
++++ b/backend/requirements.txt
+@@ -3,6 +3,8 @@ uvicorn
+ pymongo
+ pydantic
+ python-dotenv
++celery
++redis
+ pytest
+ httpx
+-mongomock
+\ No newline at end of file
++mongomock
+diff --git a/backend/task_queue.py b/backend/task_queue.py
+new file mode 100644
+index 0000000..f0128f6
+--- /dev/null
++++ b/backend/task_queue.py
+@@ -0,0 +1,36 @@
++"""Lets the API ask the Celery worker to check a price right away.
++
++The backend doesn't import the worker code. It just puts a message called
++"tasks.check_price" on the Redis queue, and the worker picks it up.
++
++If REDIS_URL isn't set (e.g. running the API alone, or in tests) this does
++nothing and returns False, so the API still works without the worker.
++"""
++
++import os
++from functools import lru_cache
++
++from celery import Celery
++
++
++@lru_cache(maxsize=1)
++def _client():
++    url = os.getenv("REDIS_URL")
++    if not url:
++        return None
++    app = Celery("price_tracker_api", broker=url)
++    app.conf.broker_connection_retry_on_startup = False
++    app.conf.broker_transport_options = {"max_retries": 1}
++    return app
++
++
++def queue_price_check(product_id: str) -> bool:
++    client = _client()
++    if client is None:
++        return False
++    try:
++        client.send_task("tasks.check_price", args=[product_id], retry=False)
++        return True
++    except Exception as exc:  # Redis down: don't fail the request
++        print(f"WARNING: could not queue price check for {product_id}: {exc}")
++        return False
+diff --git a/backend/tests/test_products.py b/backend/tests/test_products.py
+index ada423e..85d045a 100644
+--- a/backend/tests/test_products.py
++++ b/backend/tests/test_products.py
+@@ -99,4 +99,46 @@ def test_delete_product(client):
+ 
+ 
+ def test_delete_not_found(client):
+-    assert client.delete(f"/products/{MISSING_ID}").status_code == 404
+\ No newline at end of file
++    assert client.delete(f"/products/{MISSING_ID}").status_code == 404
++
++# ------------------------------------------------ email + "check now" tests
++def test_add_product_with_alert_email(client):
++    r = client.post("/products", json={**VALID, "alert_email": "me@example.com"})
++    assert r.status_code == 201
++    assert r.json()["alert_email"] == "me@example.com"
++    assert r.json()["last_error"] is None
++
++
++def test_add_product_bad_email(client):
++    r = client.post("/products", json={**VALID, "alert_email": "not-an-email"})
++    assert r.status_code == 400
++
++
++def test_add_product_queues_first_check(client, monkeypatch):
++    import main
++
++    queued = []
++    monkeypatch.setattr(main, "queue_price_check", lambda pid: queued.append(pid) or True)
++    pid = client.post("/products", json=VALID).json()["id"]
++    assert queued == [pid]
++
++
++def test_check_now_queues_task(client, monkeypatch):
++    import main
++
++    monkeypatch.setattr(main, "queue_price_check", lambda pid: True)
++    pid = client.post("/products", json=VALID).json()["id"]
++    r = client.post(f"/products/{pid}/check")
++    assert r.status_code == 202
++
++
++def test_check_now_without_worker_returns_503(client, monkeypatch):
++    import main
++
++    monkeypatch.setattr(main, "queue_price_check", lambda pid: False)
++    pid = client.post("/products", json=VALID).json()["id"]
++    assert client.post(f"/products/{pid}/check").status_code == 503
++
++
++def test_check_now_missing_product(client):
++    assert client.post(f"/products/{MISSING_ID}/check").status_code == 404
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 49af626..d53b863 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -35,11 +35,18 @@ services:
+     container_name: price_tracker_backend
+     ports:
+       - "8000:8000"
++    env_file:
++      - path: .env
++        required: false
+     environment:
+       MONGO_URI: mongodb://mongo:27017/price_tracker
++      # lets the API queue an immediate price check on the worker
++      REDIS_URL: redis://redis:6379/0
+     depends_on:
+       mongo:
+         condition: service_healthy
++      redis:
++        condition: service_healthy
+ 
+   # 4. React frontend
+   frontend:
+diff --git a/frontend/src/App.jsx b/frontend/src/App.jsx
+index ea1fca0..8b891aa 100644
+--- a/frontend/src/App.jsx
++++ b/frontend/src/App.jsx
+@@ -1,4 +1,3 @@
+-
+ import { useState } from "react";
+ 
+ import Login from "./components/login";
+@@ -11,40 +10,34 @@ import BudgetTracker from "./components/BudgetTracker";
+ 
+ function App() {
+   const [currentPage, setCurrentPage] = useState("login");
++  // Lets "View Price History" on a product open that product directly
++  const [selectedProductId, setSelectedProductId] = useState(null);
+ 
+-  const navigate = (page) => {
++  const navigate = (page, productId = null) => {
++    setSelectedProductId(productId);
+     setCurrentPage(page);
+   };
+ 
+   return (
+     <>
+-      {currentPage === "login" && (
+-        <Login onNavigate={navigate} />
+-      )}
++      {currentPage === "login" && <Login onNavigate={navigate} />}
+ 
+-      {currentPage === "signup" && (
+-        <Signup onNavigate={navigate} />
+-      )}
++      {currentPage === "signup" && <Signup onNavigate={navigate} />}
+ 
+-      {currentPage === "dashboard" && (
+-        <Dashboard onNavigate={navigate} />
+-      )}
++      {currentPage === "dashboard" && <Dashboard onNavigate={navigate} />}
+ 
+-      {currentPage === "products" && (
+-        <ProductList onNavigate={navigate} />
+-      )}
++      {currentPage === "products" && <ProductList onNavigate={navigate} />}
+ 
+       {currentPage === "history" && (
+-        <PriceHistory onNavigate={navigate} />
++        <PriceHistory
++          onNavigate={navigate}
++          initialProductId={selectedProductId}
++        />
+       )}
+ 
+-      {currentPage === "budget" && (
+-        <BudgetTracker onNavigate={navigate} />
+-      )}
++      {currentPage === "budget" && <BudgetTracker onNavigate={navigate} />}
+ 
+-      {currentPage === "profile" && (
+-        <Profile onNavigate={navigate} />
+-      )}
++      {currentPage === "profile" && <Profile onNavigate={navigate} />}
+     </>
+   );
+ }
+diff --git a/frontend/src/components/AddProduct.jsx b/frontend/src/components/AddProduct.jsx
+index dcb34b3..c25fe70 100644
+--- a/frontend/src/components/AddProduct.jsx
++++ b/frontend/src/components/AddProduct.jsx
+@@ -1,16 +1,30 @@
++import { useState } from "react";
+ 
+ function AddProduct({ onAddProduct, onCancel }) {
+-  const handleSubmit = (e) => {
++  const [saving, setSaving] = useState(false);
++  const [error, setError] = useState("");
++
++  const handleSubmit = async (e) => {
+     e.preventDefault();
+ 
+     const formData = new FormData(e.target);
+-
+     const product = {
+-      product_url: formData.get("product_url"),
++      product_url: formData.get("product_url").trim(),
+       target_price: Number(formData.get("target_price")),
+     };
+ 
+-    onAddProduct(product);
++    const email = formData.get("alert_email").trim();
++    if (email) product.alert_email = email;
++
++    try {
++      setSaving(true);
++      setError("");
++      await onAddProduct(product);
++    } catch (err) {
++      setError(err.message || "Unable to add product.");
++    } finally {
++      setSaving(false);
++    }
+   };
+ 
+   return (
+@@ -24,7 +38,7 @@ function AddProduct({ onAddProduct, onCancel }) {
+           <input
+             type="url"
+             name="product_url"
+-            placeholder="Paste product URL"
++            placeholder="e.g. http://127.0.0.1:8001/products/product-001"
+             required
+           />
+ 
+@@ -34,16 +48,26 @@ function AddProduct({ onAddProduct, onCancel }) {
+             name="target_price"
+             placeholder="Enter your target price"
+             min="1"
++            step="any"
+             required
+           />
+ 
++          <label>Email for price-drop alert (optional)</label>
++          <input
++            type="email"
++            name="alert_email"
++            placeholder="you@example.com"
++          />
++
++          {error && <p style={{ color: "#E35336" }}>{error}</p>}
++
+           <div className="add-product-actions">
+-            <button type="button" onClick={onCancel}>
++            <button type="button" onClick={onCancel} disabled={saving}>
+               Cancel
+             </button>
+ 
+-            <button type="submit">
+-              Start Tracking
++            <button type="submit" disabled={saving}>
++              {saving ? "Adding…" : "Start Tracking"}
+             </button>
+           </div>
+         </form>
+diff --git a/frontend/src/components/BudgetTracker.jsx b/frontend/src/components/BudgetTracker.jsx
+index 57d44a8..08f648a 100644
+--- a/frontend/src/components/BudgetTracker.jsx
++++ b/frontend/src/components/BudgetTracker.jsx
+@@ -1,6 +1,7 @@
+ 
+ import { useState } from "react";
+ import { setBudget, getBudgetPlan } from "../services/api";
++import Header from "./Header";
+ 
+ function BudgetTracker({ onNavigate }) {
+   const [budget, setBudgetValue] = useState("");
+@@ -33,17 +34,7 @@ function BudgetTracker({ onNavigate }) {
+ 
+   return (
+     <div className="dashboard-page">
+-      <header className="navbar">
+-        <h1 className="logo">PRICE TRACKER</h1>
+-
+-        <nav>
+-          <span onClick={() => onNavigate("dashboard")}>Dashboard</span>
+-          <span onClick={() => onNavigate("products")}>My Products</span>
+-          <span onClick={() => onNavigate("history")}>Price History</span>
+-          <span onClick={() => onNavigate("budget")}>Budget Tracker</span>
+-          <span onClick={() => onNavigate("profile")}>Profile</span>
+-        </nav>
+-      </header>
++      <Header onNavigate={onNavigate} active="budget" />
+ 
+       <main className="history-page">
+         <div className="welcome-section">
+diff --git a/frontend/src/components/Dashboard.jsx b/frontend/src/components/Dashboard.jsx
+index b3373f8..88ede33 100644
+--- a/frontend/src/components/Dashboard.jsx
++++ b/frontend/src/components/Dashboard.jsx
+@@ -1,41 +1,34 @@
++import { useEffect, useState } from "react";
++import { getProducts } from "../services/api";
++import Header from "./Header";
++import ProductCard from "./ProductCard";
+ 
+ function Dashboard({ onNavigate }) {
+-  const products = [
+-    {
+-      name: "Wireless Headphones",
+-      image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500",
+-      currentPrice: "1,499",
+-      targetPrice: "1,200",
+-      status: "Price Drop Expected",
+-    },
+-    {
+-      name: "Smart Watch",
+-      image: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=500",
+-      currentPrice: "2,499",
+-      targetPrice: "2,000",
+-      status: "Tracking",
+-    },
+-    {
+-      name: "Laptop",
+-      image: "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=500",
+-      currentPrice: "45,999",
+-      targetPrice: "42,000",
+-      status: "Tracking",
+-    },
+-  ];
++  const [products, setProducts] = useState([]);
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState("");
++
++  useEffect(() => {
++    getProducts()
++      .then(setProducts)
++      .catch((err) => setError(err.message || "Unable to load products."))
++      .finally(() => setLoading(false));
++  }, []);
++
++  // Real numbers from the API instead of hardcoded ones
++  const priced = products.filter((p) => p.current_price != null);
++  const atTarget = priced.filter((p) => p.current_price <= p.target_price);
++  const alertsSent = products.filter((p) => p.alert_sent);
++
++  // Most recently checked products first
++  const recent = [...priced]
++    .filter((p) => p.last_checked_at)
++    .sort((a, b) => new Date(b.last_checked_at) - new Date(a.last_checked_at))
++    .slice(0, 5);
+ 
+   return (
+     <div className="dashboard-page">
+-      <header className="navbar">
+-        <h1 className="logo">PRICE TRACKER</h1>
+-        <nav>
+-  <span onClick={() => onNavigate("dashboard")}>Dashboard</span>
+-  <span onClick={() => onNavigate("products")}>My Products</span>
+-  <span onClick={() => onNavigate("history")}>Price History</span>
+-  <span onClick={() => onNavigate("budget")}>Budget Tracker</span>
+-  <span onClick={() => onNavigate("profile")}>Profile</span>
+-</nav>
+-      </header>
++      <Header onNavigate={onNavigate} active="dashboard" />
+ 
+       <main className="dashboard-content">
+         <section className="welcome-section">
+@@ -43,49 +36,42 @@ function Dashboard({ onNavigate }) {
+           <p>Track prices, discover deals and save money on your favourite products</p>
+         </section>
+ 
++        {error && <p style={{ color: "#E35336" }}>{error}</p>}
++
+         <section className="stats-container">
+           <div className="stat-card">
+             <h3>Tracked Products</h3>
+-            <h2>12</h2>
++            <h2>{loading ? "…" : products.length}</h2>
+           </div>
+           <div className="stat-card">
+-            <h3>Price Drops</h3>
+-            <h2>3</h2>
++            <h3>At / Below Target</h3>
++            <h2>{loading ? "…" : atTarget.length}</h2>
+           </div>
+           <div className="stat-card">
+-            <h3>Alerts</h3>
+-            <h2>5</h2>
++            <h3>Alerts Sent</h3>
++            <h2>{loading ? "…" : alertsSent.length}</h2>
+           </div>
+         </section>
+ 
+         <section className="tracked-section">
+           <div className="section-heading">
+             <h2>Your Tracked Products</h2>
+-            <button onClick={() => onNavigate("products")}>
+-              + Add Product
+-            </button>
++            <button onClick={() => onNavigate("products")}>+ Add Product</button>
+           </div>
+ 
+-          <div className="product-container">
+-            {products.map((product, index) => (
+-              <div className="product-card" key={index}>
+-                <img
+-                  src={product.image}
+-                  alt={product.name}
+-                  className="product-image"
++          {!loading && products.length === 0 ? (
++            <p>You aren't tracking anything yet. Add your first product!</p>
++          ) : (
++            <div className="product-container">
++              {products.slice(0, 3).map((product) => (
++                <ProductCard
++                  key={product.id}
++                  product={product}
++                  onViewHistory={() => onNavigate("history", product.id)}
+                 />
+-
+-                <h3>{product.name}</h3>
+-                <p>Current Price: ₹{product.currentPrice}</p>
+-                <p>Target Price: ₹{product.targetPrice}</p>
+-                <p>Status: {product.status}</p>
+-
+-                <button onClick={() => onNavigate("history")}>
+-                  View Price History
+-                </button>
+-              </div>
+-            ))}
+-          </div>
++              ))}
++            </div>
++          )}
+ 
+           <p className="view-all" onClick={() => onNavigate("products")}>
+             View All Products →
+@@ -94,7 +80,19 @@ function Dashboard({ onNavigate }) {
+ 
+         <section className="activity-section">
+           <h2>Recent Activity</h2>
+-          <p>Price dropped for wireless headphones</p>
++          {recent.length === 0 ? (
++            <p>No price checks yet.</p>
++          ) : (
++            recent.map((p) => (
++              <p key={p.id}>
++                {p.product_name}: ₹{Number(p.current_price).toLocaleString("en-IN")}
++                {p.current_price <= p.target_price ? " — target reached 🎉" : ""}
++                <span style={{ color: "#777", fontSize: "0.85em" }}>
++                  {" "}({new Date(p.last_checked_at).toLocaleString("en-IN")})
++                </span>
++              </p>
++            ))
++          )}
+         </section>
+       </main>
+     </div>
+diff --git a/frontend/src/components/Header.jsx b/frontend/src/components/Header.jsx
+index f5bc569..60a0bb1 100644
+--- a/frontend/src/components/Header.jsx
++++ b/frontend/src/components/Header.jsx
+@@ -1,26 +1,28 @@
++const LINKS = [
++  ["dashboard", "Dashboard"],
++  ["products", "My Products"],
++  ["history", "Price History"],
++  ["budget", "Budget Tracker"],
++  ["profile", "Profile"],
++];
+ 
+-function Header({ onNavigate }) {
++// Shared navbar used by every page after login
++function Header({ onNavigate, active }) {
+   return (
+     <header className="navbar">
+       <h1 className="logo">PRICE TRACKER</h1>
+ 
+       <nav>
+-        <span onClick={() => onNavigate("dashboard")}>
+-          Dashboard
+-        </span>
+-
+-        <span onClick={() => onNavigate("products")}>
+-          My Products
+-        </span>
+-
+-        <span onClick={() => onNavigate("history")}>
+-          Price History
+-        </span>
+-
+-        <span>Profile</span>
++        {LINKS.map(([page, label]) => (
++          <span
++            key={page}
++            onClick={() => onNavigate(page)}
++            style={active === page ? { textDecoration: "underline" } : undefined}
++          >
++            {label}
++          </span>
++        ))}
+       </nav>
+-
+-      <span onClick={() => onNavigate("budget")}>Budget Tracker</span>
+     </header>
+   );
+ }
+diff --git a/frontend/src/components/PriceHistory.jsx b/frontend/src/components/PriceHistory.jsx
+index 0e1b0ae..2bf9f62 100644
+--- a/frontend/src/components/PriceHistory.jsx
++++ b/frontend/src/components/PriceHistory.jsx
+@@ -6,8 +6,9 @@ import {
+   getProductInsights,
+   getProductDrops,
+ } from "../services/api";
++import Header from "./Header";
+ 
+-function PriceHistory({ onNavigate }) {
++function PriceHistory({ onNavigate, initialProductId }) {
+   const [products, setProducts] = useState([]);
+   const [selectedProduct, setSelectedProduct] = useState(null);
+ 
+@@ -19,23 +20,6 @@ function PriceHistory({ onNavigate }) {
+   const [detailsLoading, setDetailsLoading] = useState(false);
+   const [error, setError] = useState("");
+ 
+-  useEffect(() => {
+-    const fetchProducts = async () => {
+-      try {
+-        setLoading(true);
+-        setError("");
+-
+-        const data = await getProducts();
+-        setProducts(data);
+-      } catch (err) {
+-        setError(err.message || "Unable to load products.");
+-      } finally {
+-        setLoading(false);
+-      }
+-    };
+-
+-    fetchProducts();
+-  }, []);
+ 
+   const selectProduct = async (product) => {
+     try {
+@@ -64,6 +48,18 @@ function PriceHistory({ onNavigate }) {
+     }
+   };
+ 
++  useEffect(() => {
++    getProducts()
++      .then((data) => {
++        setProducts(data);
++        // Opened via "View Price History" on a product: show it straight away
++        const preselected = data.find((p) => p.id === initialProductId);
++        if (preselected) selectProduct(preselected);
++      })
++      .catch((err) => setError(err.message || "Unable to load products."))
++      .finally(() => setLoading(false));
++  }, [initialProductId]);
++
+   const formatDate = (date) => {
+     return new Date(date).toLocaleDateString("en-IN", {
+       day: "2-digit",
+@@ -140,17 +136,7 @@ function PriceHistory({ onNavigate }) {
+ 
+   return (
+     <div className="dashboard-page">
+-      <header className="navbar">
+-        <h1 className="logo">PRICE TRACKER</h1>
+-
+-        <nav>
+-          <span onClick={() => onNavigate("dashboard")}>Dashboard</span>
+-          <span onClick={() => onNavigate("products")}>My Products</span>
+-          <span onClick={() => onNavigate("history")}>Price History</span>
+-          <span onClick={() => onNavigate("profile")}>Profile</span>
+-          <span onClick={() => onNavigate("budget")}>Budget Tracker</span>
+-        </nav>
+-      </header>
++      <Header onNavigate={onNavigate} active="history" />
+ 
+       <main className="history-page">
+         <div className="welcome-section">
+diff --git a/frontend/src/components/ProductCard.jsx b/frontend/src/components/ProductCard.jsx
+index 1502105..89ec2ed 100644
+--- a/frontend/src/components/ProductCard.jsx
++++ b/frontend/src/components/ProductCard.jsx
+@@ -1,33 +1,58 @@
++import { productStatus } from "../utils/productStatus";
++
++const formatPrice = (price) => `₹${Number(price).toLocaleString("en-IN")}`;
++
++function ProductCard({ product, onViewHistory, onDelete, onCheckNow, checking }) {
++  const status = productStatus(product);
+ 
+-function ProductCard({ product, onViewHistory, onDelete }) {
+   return (
+     <div className="product-card">
+       <div className="product-image">
+-        <span>📦</span>
++        <span style={{ fontSize: "55px" }}>🛍️</span>
+       </div>
+ 
+-      <h3>{product.product_name}</h3>
+-
+-      <p>
+-        Current Price: ₹{product.current_price ?? "Loading..."}
+-      </p>
+-
+-      <p>
+-        Target Price: ₹{product.target_price}
+-      </p>
+-
+-      <div className="product-card-actions">
+-        <button onClick={onViewHistory}>
+-          View History
+-        </button>
+-
+-        <button onClick={onDelete}>
+-          Delete
+-        </button>
++      <div className="product-info">
++        <p className="product-category">{product.site?.toUpperCase()}</p>
++
++        <h3>{product.product_name}</h3>
++
++        <p>
++          Current Price:{" "}
++          <strong>
++            {product.current_price != null
++              ? formatPrice(product.current_price)
++              : "Not checked yet"}
++          </strong>
++        </p>
++
++        <p>
++          Target Price: <strong>{formatPrice(product.target_price)}</strong>
++        </p>
++
++        <p style={{ color: status.color, fontWeight: 600 }}>{status.text}</p>
++
++        {product.last_checked_at && (
++          <p style={{ fontSize: "0.85em", color: "#777" }}>
++            Last checked: {new Date(product.last_checked_at).toLocaleString("en-IN")}
++          </p>
++        )}
++
++        <div className="product-card-actions">
++          {onViewHistory && (
++            <button onClick={onViewHistory}>View Price History</button>
++          )}
++
++          {onCheckNow && (
++            <button onClick={onCheckNow} disabled={checking}>
++              {checking ? "Checking…" : "Check Now"}
++            </button>
++          )}
++
++          {onDelete && <button onClick={onDelete}>Remove</button>}
++        </div>
+       </div>
+     </div>
+   );
+ }
+ 
+ export default ProductCard;
+-
+diff --git a/frontend/src/components/ProductList.jsx b/frontend/src/components/ProductList.jsx
+index d6f3195..9a8532e 100644
+--- a/frontend/src/components/ProductList.jsx
++++ b/frontend/src/components/ProductList.jsx
+@@ -1,6 +1,13 @@
+-
+ import { useEffect, useState } from "react";
+-import { getProducts, deleteProduct } from "../services/api";
++import {
++  getProducts,
++  addProduct,
++  deleteProduct,
++  checkProductNow,
++} from "../services/api";
++import Header from "./Header";
++import AddProduct from "./AddProduct";
++import ProductCard from "./ProductCard";
+ 
+ function ProductList({ onNavigate }) {
+   const [products, setProducts] = useState([]);
+@@ -8,37 +15,59 @@ function ProductList({ onNavigate }) {
+   const [siteFilter, setSiteFilter] = useState("All");
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState("");
++  const [showAddForm, setShowAddForm] = useState(false);
++  const [checkingId, setCheckingId] = useState(null);
++
++  // Only sets state after the request finishes (keeps the linter happy)
++  const loadProducts = () =>
++    getProducts()
++      .then((data) => {
++        setProducts(data);
++        setError("");
++      })
++      .catch((err) => setError(err.message || "Unable to load products."))
++      .finally(() => setLoading(false));
+ 
+-  const fetchProducts = async () => {
+-    try {
+-      setLoading(true);
+-      setError("");
++  useEffect(() => {
++    loadProducts();
++  }, []);
++
++  const handleRetry = () => {
++    setLoading(true);
++    loadProducts();
++  };
++
++  const handleAdd = async (product) => {
++    // Errors are shown inside the AddProduct form
++    const created = await addProduct(product);
++    setProducts((previous) => [created, ...previous]);
++    setShowAddForm(false);
++
++    // The worker fetches the first price in the background; refresh shortly
++    setTimeout(loadProducts, 4000);
++  };
+ 
+-      const data = await getProducts();
+-      setProducts(data);
++  const handleCheckNow = async (id) => {
++    try {
++      setCheckingId(id);
++      await checkProductNow(id);
++      // give the worker a moment, then reload the new price
++      setTimeout(() => {
++        loadProducts();
++        setCheckingId(null);
++      }, 3000);
+     } catch (err) {
+-      setError(err.message || "Unable to load products.");
+-    } finally {
+-      setLoading(false);
++      setCheckingId(null);
++      alert(err.message || "Unable to check price.");
+     }
+   };
+ 
+-  useEffect(() => {
+-    fetchProducts();
+-  }, []);
+-
+   const handleDelete = async (id) => {
+-    const confirmDelete = window.confirm(
+-      "Are you sure you want to remove this product?"
+-    );
+-
+-    if (!confirmDelete) return;
++    if (!window.confirm("Are you sure you want to remove this product?")) return;
+ 
+     try {
+       await deleteProduct(id);
+-      setProducts((previous) =>
+-        previous.filter((product) => product.id !== id)
+-      );
++      setProducts((previous) => previous.filter((p) => p.id !== id));
+     } catch (err) {
+       alert(err.message || "Unable to delete product.");
+     }
+@@ -49,25 +78,14 @@ function ProductList({ onNavigate }) {
+       ?.toLowerCase()
+       .includes(search.toLowerCase());
+ 
+-    const matchesSite =
+-      siteFilter === "All" || product.site === siteFilter;
++    const matchesSite = siteFilter === "All" || product.site === siteFilter;
+ 
+     return matchesSearch && matchesSite;
+   });
+ 
+   return (
+     <div className="dashboard-page">
+-      <header className="navbar">
+-        <h1 className="logo">PRICE TRACKER</h1>
+-
+-        <nav>
+-          <span onClick={() => onNavigate("dashboard")}>Dashboard</span>
+-          <span onClick={() => onNavigate("products")}>My Products</span>
+-          <span onClick={() => onNavigate("history")}>Price History</span>
+-          <span onClick={() => onNavigate("profile")}>Profile</span>
+-          <span onClick={() => onNavigate("budget")}>Budget Tracker</span>
+-        </nav>
+-      </header>
++      <Header onNavigate={onNavigate} active="products" />
+ 
+       <main className="products-page">
+         <div className="welcome-section">
+@@ -75,6 +93,13 @@ function ProductList({ onNavigate }) {
+           <p>Manage and track all your products in one place.</p>
+         </div>
+ 
++        {showAddForm && (
++          <AddProduct
++            onAddProduct={handleAdd}
++            onCancel={() => setShowAddForm(false)}
++          />
++        )}
++
+         <div className="product-controls">
+           <input
+             type="text"
+@@ -97,7 +122,7 @@ function ProductList({ onNavigate }) {
+ 
+           <button
+             className="add-product-button"
+-            onClick={() => alert("We'll connect Add Product next!")}
++            onClick={() => setShowAddForm(true)}
+           >
+             + Add Product
+           </button>
+@@ -108,7 +133,7 @@ function ProductList({ onNavigate }) {
+         {error && (
+           <div>
+             <p>{error}</p>
+-            <button onClick={fetchProducts}>Try Again</button>
++            <button onClick={handleRetry}>Try Again</button>
+           </div>
+         )}
+ 
+@@ -126,47 +151,14 @@ function ProductList({ onNavigate }) {
+             ) : (
+               <div className="product-grid">
+                 {filteredProducts.map((product) => (
+-                  <div className="product-card" key={product.id}>
+-                    <div className="product-image">
+-                      <span style={{ fontSize: "55px" }}>🛍️</span>
+-                    </div>
+-
+-                    <div className="product-info">
+-                      <p className="product-category">
+-                        {product.site?.toUpperCase()}
+-                      </p>
+-
+-                      <h3>{product.product_name}</h3>
+-
+-                      <p>
+-                        Current Price:{" "}
+-                        <strong>
+-                          {product.current_price != null
+-                            ? `₹${product.current_price}`
+-                            : "Not checked yet"}
+-                        </strong>
+-                      </p>
+-
+-                      <p>
+-                        Target Price:{" "}
+-                        <strong>₹{product.target_price}</strong>
+-                      </p>
+-
+-                      <button
+-                        className="view-history-button"
+-                        onClick={() => onNavigate("history")}
+-                      >
+-                        View Price History
+-                      </button>
+-
+-                      <button
+-                        className="add-product-button"
+-                        onClick={() => handleDelete(product.id)}
+-                      >
+-                        Remove Product
+-                      </button>
+-                    </div>
+-                  </div>
++                  <ProductCard
++                    key={product.id}
++                    product={product}
++                    checking={checkingId === product.id}
++                    onViewHistory={() => onNavigate("history", product.id)}
++                    onCheckNow={() => handleCheckNow(product.id)}
++                    onDelete={() => handleDelete(product.id)}
++                  />
+                 ))}
+               </div>
+             )}
+diff --git a/frontend/src/components/Profile.jsx b/frontend/src/components/Profile.jsx
+index 97396ad..dc58c66 100644
+--- a/frontend/src/components/Profile.jsx
++++ b/frontend/src/components/Profile.jsx
+@@ -1,18 +1,9 @@
++import Header from "./Header";
+ 
+ function Profile({ onNavigate }) {
+   return (
+     <div className="dashboard-page">
+-      <header className="navbar">
+-        <h1 className="logo">PRICE TRACKER</h1>
+-
+-        <nav>
+-          <span onClick={() => onNavigate("dashboard")}>Dashboard</span>
+-          <span onClick={() => onNavigate("products")}>My Products</span>
+-          <span onClick={() => onNavigate("history")}>Price History</span>
+-          <span onClick={() => onNavigate("profile")}>Profile</span>
+-          <span onClick={() => onNavigate("budget")}>Budget Tracker</span>
+-        </nav>
+-      </header>
++      <Header onNavigate={onNavigate} active="profile" />
+ 
+       <main className="dashboard-content">
+         <section className="welcome-section">
+diff --git a/frontend/src/services/api.js b/frontend/src/services/api.js
+index d5a42ef..c71c481 100644
+--- a/frontend/src/services/api.js
++++ b/frontend/src/services/api.js
+@@ -17,7 +17,12 @@ async function apiRequest(endpoint, options = {}) {
+   const data = await response.json().catch(() => ({}));
+ 
+   if (!response.ok) {
+-    throw new Error(data.detail || "Something went wrong");
++    // Validation errors come back as {detail: "Invalid input", errors: [...]}
++    const firstError = data.errors?.[0];
++    const message = firstError
++      ? `${firstError.loc?.slice(-1)[0]}: ${firstError.msg}`
++      : data.detail;
++    throw new Error(message || "Something went wrong");
+   }
+ 
+   return data;
+@@ -45,6 +50,13 @@ export function deleteProduct(id) {
+   });
+ }
+ 
++// Ask the worker to re-check this product's price right now
++export function checkProductNow(id) {
++  return apiRequest(`/products/${id}/check`, {
++    method: "POST",
++  });
++}
++
+ export function getPriceHistory(id) {
+   return apiRequest(`/products/${id}/history`);
+ }
+diff --git a/frontend/src/utils/productStatus.js b/frontend/src/utils/productStatus.js
+new file mode 100644
+index 0000000..e6cb0f4
+--- /dev/null
++++ b/frontend/src/utils/productStatus.js
+@@ -0,0 +1,16 @@
++// Works out what to show under a product, using the fields the worker fills in
++export function productStatus(product) {
++  if (product.last_error && product.current_price == null) {
++    return { text: `Couldn't fetch price: ${product.last_error}`, color: "#E35336" };
++  }
++  if (product.current_price == null) {
++    return { text: "Waiting for first price check…", color: "#777777" };
++  }
++  if (product.current_price <= product.target_price) {
++    return {
++      text: product.alert_sent ? "Target reached · alert sent ✓" : "Target reached!",
++      color: "#2E7D32",
++    };
++  }
++  return { text: "Tracking", color: "#A0522D" };
++}
+diff --git a/worker/celery_app.py b/worker/celery_app.py
+index 7bd1628..06c057b 100644
+--- a/worker/celery_app.py
++++ b/worker/celery_app.py
+@@ -27,11 +27,14 @@ celery_app.conf.update(
+     result_serializer="json",
+ )
+ 
+-# Automatic checks every 6 hours
++# Automatic checks. Default every 6 hours; for the expo demo set
++# CHECK_INTERVAL_SECONDS=60 in .env so price changes show up within a minute.
++CHECK_INTERVAL_SECONDS = float(os.getenv("CHECK_INTERVAL_SECONDS", "21600"))
++
+ celery_app.conf.beat_schedule = {
+-    "check-products-every-6-hours": {
++    "check-all-products": {
+         "task": "tasks.enqueue_all_products",
+-        "schedule": 21600.0,
++        "schedule": CHECK_INTERVAL_SECONDS,
+     }
+ }
+ 
+diff --git a/worker/demo_price.py b/worker/demo_price.py
+new file mode 100644
+index 0000000..97e1215
+--- /dev/null
++++ b/worker/demo_price.py
+@@ -0,0 +1,44 @@
++"""Change a price on the built-in demo store and immediately re-check all products.
++
++The demo store only listens on 127.0.0.1 *inside the worker container*, so it
++can't be reached from your laptop. Run this inside the container instead:
++
++    docker compose exec worker python demo_price.py product-001 999
++
++Then refresh the frontend: the new price (and an email alert, if 999 is below
++the target) should appear within a few seconds.
++"""
++
++import argparse
++import os
++
++import requests
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
++    parser.add_argument("product_id", help="demo product id, e.g. product-001")
++    parser.add_argument("price", type=float, help="new price in INR")
++    parser.add_argument(
++        "--no-check", action="store_true", help="only change the price, don't trigger a check"
++    )
++    args = parser.parse_args()
++
++    base = os.getenv("LOCAL_STORE_URL", "http://127.0.0.1:8001").rstrip("/")
++    resp = requests.post(
++        f"{base}/admin/products/{args.product_id}/price",
++        json={"price": args.price},
++        timeout=5,
++    )
++    print(resp.json())
++    resp.raise_for_status()
++
++    if not args.no_check:
++        from tasks import enqueue_all_products
++
++        enqueue_all_products.delay()
++        print("Queued a price check for all tracked products.")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/worker/notifications.py b/worker/notifications.py
+new file mode 100644
+index 0000000..49152bc
+--- /dev/null
++++ b/worker/notifications.py
+@@ -0,0 +1,102 @@
++"""Email alerts for price drops (replaces the old Telegram alerts).
++
++Configure with these environment variables (see .env.example):
++
++    SMTP_HOST       e.g. smtp.gmail.com
++    SMTP_PORT       587 for STARTTLS (default), 465 for SSL
++    SMTP_USER       the sending account, e.g. yourteam@gmail.com
++    SMTP_PASSWORD   for Gmail this must be an App Password, not your login password
++    SMTP_FROM       optional, defaults to SMTP_USER
++    ALERT_EMAIL_TO  optional fallback recipient when a product has no alert_email
++
++If SMTP is not configured, send_email_alert() raises EmailNotConfigured.
++The caller (tasks.check_price) catches it, so a price check never crashes
++just because email isn't set up.
++"""
++
++import os
++import smtplib
++import ssl
++from email.message import EmailMessage
++
++
++class EmailNotConfigured(RuntimeError):
++    pass
++
++
++def _smtp_settings() -> dict:
++    host = os.getenv("SMTP_HOST", "").strip()
++    user = os.getenv("SMTP_USER", "").strip()
++    password = os.getenv("SMTP_PASSWORD", "").strip()
++    if not (host and user and password):
++        raise EmailNotConfigured(
++            "SMTP_HOST, SMTP_USER and SMTP_PASSWORD must be set to send email alerts."
++        )
++    return {
++        "host": host,
++        "port": int(os.getenv("SMTP_PORT", "587")),
++        "user": user,
++        "password": password,
++        "sender": os.getenv("SMTP_FROM", "").strip() or user,
++    }
++
++
++def resolve_recipient(product_email: str | None) -> str:
++    recipient = (product_email or "").strip() or os.getenv("ALERT_EMAIL_TO", "").strip()
++    if not recipient:
++        raise EmailNotConfigured(
++            "No recipient: product has no alert_email and ALERT_EMAIL_TO is not set."
++        )
++    return recipient
++
++
++def build_message(
++    sender: str,
++    recipient: str,
++    product_name: str,
++    current_price: float,
++    target_price: float,
++    product_url: str,
++) -> EmailMessage:
++    saved = target_price - current_price
++    msg = EmailMessage()
++    msg["Subject"] = f"Price drop: {product_name} is now ₹{current_price:,.2f}"
++    msg["From"] = sender
++    msg["To"] = recipient
++    msg.set_content(
++        f"Good news! A product you are tracking has reached your target price.\n\n"
++        f"Product:       {product_name}\n"
++        f"Current price: ₹{current_price:,.2f}\n"
++        f"Your target:   ₹{target_price:,.2f}\n"
++        f"Below target by ₹{saved:,.2f}\n\n"
++        f"Link: {product_url}\n\n"
++        f"- Smart Price Tracker"
++    )
++    return msg
++
++
++def send_email_alert(
++    product_name: str,
++    current_price: float,
++    target_price: float,
++    product_url: str,
++    recipient: str | None = None,
++) -> str:
++    """Send the alert and return the address it was sent to."""
++    settings = _smtp_settings()
++    to_addr = resolve_recipient(recipient)
++    msg = build_message(
++        settings["sender"], to_addr, product_name, current_price, target_price, product_url
++    )
++
++    context = ssl.create_default_context()
++    if settings["port"] == 465:
++        with smtplib.SMTP_SSL(settings["host"], settings["port"], context=context, timeout=15) as server:
++            server.login(settings["user"], settings["password"])
++            server.send_message(msg)
++    else:
++        with smtplib.SMTP(settings["host"], settings["port"], timeout=15) as server:
++            server.starttls(context=context)
++            server.login(settings["user"], settings["password"])
++            server.send_message(msg)
++    return to_addr
+diff --git a/worker/pytest.ini b/worker/pytest.ini
+new file mode 100644
+index 0000000..5ee6477
+--- /dev/null
++++ b/worker/pytest.ini
+@@ -0,0 +1,2 @@
++[pytest]
++testpaths = tests
+diff --git a/worker/tasks.py b/worker/tasks.py
+index 869a0e2..da194e1 100644
+--- a/worker/tasks.py
++++ b/worker/tasks.py
+@@ -1,23 +1,35 @@
+ from datetime import datetime, timezone
++
+ from bson import ObjectId
++from bson.errors import InvalidId
+ 
+ from celery_app import celery_app
+-from database import (
+-    products_collection,
+-    price_history_collection
+-)
++from database import price_history_collection, products_collection
++from notifications import EmailNotConfigured, send_email_alert
+ from scraper_adapter import get_scraper_result
+-from notifications import send_telegram_alert
++
++
++def _now():
++    return datetime.now(timezone.utc)
++
++
++def _record_error(oid, message):
++    # Saved on the product so the frontend can show WHY there is no price yet
++    # (e.g. "Amazon API credentials missing") instead of "Pending" forever.
++    products_collection.update_one(
++        {"_id": oid},
++        {"$set": {"last_error": message, "last_checked_at": _now()}},
++    )
+ 
+ 
+ @celery_app.task(name="tasks.check_price")
+ def check_price(product_id, simulated_price=None):
++    try:
++        oid = ObjectId(product_id)
++    except (InvalidId, TypeError):
++        return "Invalid product id"
+ 
+-    # Find the product
+-    product = products_collection.find_one({
+-        "_id": ObjectId(product_id)
+-    })
+-
++    product = products_collection.find_one({"_id": oid})
+     if not product:
+         return "Product not found"
+ 
+@@ -25,14 +37,17 @@ def check_price(product_id, simulated_price=None):
+     product_url = product["product_url"]
+     target_price = float(product["target_price"])
+ 
+-    # Get current price and retention permission
++    # 1. Get the current price (and whether we may store it as history)
+     if simulated_price is not None:
+         current_price = float(simulated_price)
+         allow_history = False
+-        checked_at = datetime.now(timezone.utc)
+-
++        checked_at = _now()
+     else:
+-        result = get_scraper_result(product_url)
++        try:
++            result = get_scraper_result(product_url)
++        except (RuntimeError, ValueError) as exc:
++            _record_error(oid, str(exc))
++            return f"Price check failed: {exc}"
+ 
+         current_price = float(result.current_price)
+         checked_at = result.checked_at
+@@ -41,85 +56,72 @@ def check_price(product_id, simulated_price=None):
+         if result.product_name and result.product_name != product_name:
+             product_name = result.product_name
+             products_collection.update_one(
+-                {"_id": ObjectId(product_id)},
+-                {"$set": {"product_name": product_name}}
++                {"_id": oid}, {"$set": {"product_name": product_name}}
+             )
+ 
+         policy = result.cache_policy
+-
+-        if policy.price_ttl_seconds <= 0:
+-            raise ValueError("Invalid price cache TTL")
+-
+-        if policy.metadata_ttl_seconds <= 0:
+-            raise ValueError("Invalid metadata cache TTL")
++        if policy.price_ttl_seconds <= 0 or policy.metadata_ttl_seconds <= 0:
++            _record_error(oid, "Scraper returned an invalid cache policy")
++            return "Invalid cache policy"
+ 
+         allow_history = policy.allow_historical_storage
+ 
+     if current_price <= 0:
+-        raise ValueError("Invalid product price")
++        _record_error(oid, "Scraper returned a non-positive price")
++        return "Invalid product price"
+ 
+-    # Save history only when permitted
++    # 2. Save history only when the source's licence allows it
+     if allow_history:
+-        price_history_collection.insert_one({
+-            "product_id": ObjectId(product_id),
+-            "price": current_price,
+-            "checked_at": checked_at
+-        })
++        price_history_collection.insert_one(
++            {"product_id": oid, "price": current_price, "checked_at": checked_at}
++        )
+ 
+-    # Update current price
++    # 3. Update current price and clear any previous error
+     products_collection.update_one(
+-        {"_id": ObjectId(product_id)},
+-        {"$set": {"current_price": current_price}}
++        {"_id": oid},
++        {
++            "$set": {
++                "current_price": current_price,
++                "last_checked_at": checked_at,
++                "last_error": None,
++            }
++        },
+     )
+ 
+-    alert_sent = product.get("alert_sent", False)
+-
+-    # Check target price
+-    if current_price <= target_price:
+-
+-        if not alert_sent:
+-            try:
+-                send_telegram_alert(
+-                    product_name,
+-                    current_price,
+-                    target_price
+-                )
+-            except Exception as exc:
+-                # Don't crash the whole price check if Telegram isn't set up;
+-                # alert_sent stays False so it retries on the next check.
+-                print(f"WARNING: could not send Telegram alert: {exc}")
+-                return "Target reached, but alert could not be sent"
+-
+-            products_collection.update_one(
+-                {"_id": ObjectId(product_id)},
+-                {"$set": {"alert_sent": True}}
+-            )
+-
+-            return "Price drop alert sent!"
++    # 4. Alert logic: send once when price first reaches the target,
++    #    re-arm when it goes back above the target.
++    if current_price > target_price:
++        if product.get("alert_sent"):
++            products_collection.update_one({"_id": oid}, {"$set": {"alert_sent": False}})
++        return "Price checked successfully!"
+ 
++    if product.get("alert_sent"):
+         return "Alert already sent"
+ 
+-    else:
+-        products_collection.update_one(
+-            {"_id": ObjectId(product_id)},
+-            {"$set": {"alert_sent": False}}
++    try:
++        sent_to = send_email_alert(
++            product_name,
++            current_price,
++            target_price,
++            product_url,
++            recipient=product.get("alert_email"),
+         )
++    except EmailNotConfigured as exc:
++        # Leave alert_sent False so it is retried on the next check
++        print(f"WARNING: email alert not sent ({exc})")
++        return "Target reached, but email is not configured"
++    except Exception as exc:  # SMTP login/network failure
++        print(f"WARNING: could not send email alert: {exc}")
++        return "Target reached, but alert could not be sent"
+ 
+-    return "Price checked successfully!"
++    products_collection.update_one({"_id": oid}, {"$set": {"alert_sent": True}})
++    return f"Price drop alert emailed to {sent_to}"
+ 
+ 
+ @celery_app.task(name="tasks.enqueue_all_products")
+ def enqueue_all_products():
+-
+-    products = products_collection.find(
+-        {},
+-        {"_id": 1}
+-    )
+-
+     count = 0
+-
+-    for product in products:
++    for product in products_collection.find({}, {"_id": 1}):
+         check_price.delay(str(product["_id"]))
+         count += 1
+-
+-    return f"Scheduled {count} products"
+\ No newline at end of file
++    return f"Scheduled {count} products"
+diff --git a/worker/tests/__init__.py b/worker/tests/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/worker/tests/conftest.py b/worker/tests/conftest.py
+new file mode 100644
+index 0000000..644be7a
+--- /dev/null
++++ b/worker/tests/conftest.py
+@@ -0,0 +1,18 @@
++"""Make the worker importable in tests without a real MongoDB or Redis.
++
++worker/database.py connects to MongoDB at import time, so we swap in mongomock
++before anything imports it.
++"""
++import os
++import sys
++from pathlib import Path
++
++import mongomock
++import pymongo
++
++WORKER_DIR = Path(__file__).resolve().parent.parent
++sys.path.insert(0, str(WORKER_DIR))
++sys.path.insert(0, str(WORKER_DIR.parent))  # so `import scraper` works
++
++os.environ.setdefault("MONGO_URI", "mongodb://localhost:27017/price_tracker_test")
++pymongo.MongoClient = mongomock.MongoClient
+diff --git a/worker/tests/test_tasks.py b/worker/tests/test_tasks.py
+new file mode 100644
+index 0000000..b28c850
+--- /dev/null
++++ b/worker/tests/test_tasks.py
+@@ -0,0 +1,156 @@
++from datetime import datetime, timezone
++from types import SimpleNamespace
++
++import pytest
++from bson import ObjectId
++
++import notifications
++import tasks
++from database import price_history_collection, products_collection
++from scraper.models import CachePolicy, ScraperResult, SourceCategory
++
++
++@pytest.fixture(autouse=True)
++def clean_db(monkeypatch):
++    products_collection.delete_many({})
++    price_history_collection.delete_many({})
++    for var in ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "ALERT_EMAIL_TO"):
++        monkeypatch.delenv(var, raising=False)
++    yield
++
++
++def add_product(target=1000.0, alert_sent=False, email="buyer@example.com"):
++    return str(
++        products_collection.insert_one(
++            {
++                "user_id": "demo-user",
++                "product_name": "Pending first price check",
++                "product_url": "http://127.0.0.1:8001/products/product-001",
++                "site": "other",
++                "target_price": target,
++                "current_price": None,
++                "alert_sent": alert_sent,
++                "alert_email": email,
++                "created_at": datetime.now(timezone.utc),
++            }
++        ).inserted_id
++    )
++
++
++def fake_result(price, allow_history=True):
++    return ScraperResult(
++        success=True,
++        product_name="Demo Headphones",
++        current_price=price,
++        site="local_store",
++        product_url="http://127.0.0.1:8001/products/product-001",
++        source_category=SourceCategory.CONTROLLED_DEMO_STORE,
++        is_commercial_store=False,
++        cache_policy=CachePolicy(
++            price_ttl_seconds=60, metadata_ttl_seconds=60, allow_historical_storage=allow_history
++        ),
++    )
++
++
++def test_tasks_module_imports():
++    # Regression test: tasks.py used to import a deleted notifications module
++    assert tasks.check_price.name == "tasks.check_price"
++
++
++def test_price_above_target_saves_history_and_name(monkeypatch):
++    pid = add_product(target=1000)
++    monkeypatch.setattr(tasks, "get_scraper_result", lambda url: fake_result(1499))
++
++    assert tasks.check_price(pid) == "Price checked successfully!"
++    doc = products_collection.find_one({"_id": ObjectId(pid)})
++    assert doc["current_price"] == 1499
++    assert doc["product_name"] == "Demo Headphones"
++    assert doc["last_error"] is None
++    assert price_history_collection.count_documents({"product_id": ObjectId(pid)}) == 1
++
++
++def test_history_not_saved_when_licence_forbids(monkeypatch):
++    pid = add_product()
++    monkeypatch.setattr(tasks, "get_scraper_result", lambda url: fake_result(1499, allow_history=False))
++    tasks.check_price(pid)
++    assert price_history_collection.count_documents({}) == 0
++
++
++def test_scrape_failure_is_recorded(monkeypatch):
++    pid = add_product()
++
++    def boom(url):
++        raise RuntimeError("Scraping failed: credentials missing")
++
++    monkeypatch.setattr(tasks, "get_scraper_result", boom)
++    assert tasks.check_price(pid).startswith("Price check failed")
++    doc = products_collection.find_one({"_id": ObjectId(pid)})
++    assert "credentials missing" in doc["last_error"]
++    assert doc["current_price"] is None
++
++
++def test_alert_sent_once_when_target_reached(monkeypatch):
++    pid = add_product(target=1000)
++    sent = []
++    monkeypatch.setattr(
++        tasks, "send_email_alert", lambda *a, **k: sent.append(k["recipient"]) or k["recipient"]
++    )
++
++    assert "emailed to buyer@example.com" in tasks.check_price(pid, simulated_price=900)
++    assert tasks.check_price(pid, simulated_price=850) == "Alert already sent"
++    assert sent == ["buyer@example.com"]
++    assert products_collection.find_one({"_id": ObjectId(pid)})["alert_sent"] is True
++
++
++def test_alert_rearms_when_price_goes_back_up(monkeypatch):
++    pid = add_product(target=1000, alert_sent=True)
++    tasks.check_price(pid, simulated_price=1200)
++    assert products_collection.find_one({"_id": ObjectId(pid)})["alert_sent"] is False
++
++
++def test_missing_smtp_config_does_not_crash():
++    pid = add_product(target=1000)
++    assert tasks.check_price(pid, simulated_price=900) == "Target reached, but email is not configured"
++    # still False so the alert is retried once SMTP is configured
++    assert products_collection.find_one({"_id": ObjectId(pid)})["alert_sent"] is False
++
++
++def test_invalid_and_missing_ids():
++    assert tasks.check_price("not-an-id") == "Invalid product id"
++    assert tasks.check_price("507f1f77bcf86cd799439011") == "Product not found"
++
++
++def test_email_message_and_recipient_fallback(monkeypatch):
++    monkeypatch.setenv("ALERT_EMAIL_TO", "team@example.com")
++    assert notifications.resolve_recipient(None) == "team@example.com"
++    assert notifications.resolve_recipient("me@example.com") == "me@example.com"
++
++    msg = notifications.build_message("bot@x.com", "me@x.com", "Headphones", 900, 1000, "http://x")
++    assert "Headphones" in msg["Subject"]
++    assert "₹100.00" in msg.get_content()
++
++
++def test_send_email_uses_smtp(monkeypatch):
++    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
++    monkeypatch.setenv("SMTP_USER", "bot@example.com")
++    monkeypatch.setenv("SMTP_PASSWORD", "secret")
++    calls = SimpleNamespace(sent=None, tls=False)
++
++    class FakeSMTP:
++        def __init__(self, host, port, timeout):
++            assert (host, port) == ("smtp.example.com", 587)
++        def __enter__(self):
++            return self
++        def __exit__(self, *exc):
++            return False
++        def starttls(self, context):
++            calls.tls = True
++        def login(self, user, password):
++            assert password == "secret"
++        def send_message(self, msg):
++            calls.sent = msg
++
++    monkeypatch.setattr(notifications.smtplib, "SMTP", FakeSMTP)
++    to = notifications.send_email_alert("Headphones", 900, 1000, "http://x", "me@example.com")
++    assert to == "me@example.com"
++    assert calls.tls and calls.sent["To"] == "me@example.com"
+-- 
+2.43.0
+
