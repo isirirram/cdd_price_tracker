@@ -17,10 +17,17 @@ from scraper.exceptions import (
 )
 from scraper.integrations import (
     AmazonCreatorsAdapter,
+    BigCommerceAdapter,
     CromaPolicyAdapter,
     FlipkartAffiliateAdapter,
+    GenericEcommerceAdapter,
     LocalStoreAdapter,
+    OpenCartAdapter,
     OpenPricesAdapter,
+    PrestaShopAdapter,
+    ShopifyAdapter,
+    WixAdapter,
+    WooCommerceAdapter,
 )
 from scraper.models import ScraperResult, SourceCategory
 
@@ -37,6 +44,13 @@ class ScraperFactory:
             AmazonCreatorsAdapter(),
             FlipkartAffiliateAdapter(),
             CromaPolicyAdapter(),
+            ShopifyAdapter(),
+            WooCommerceAdapter(),
+            BigCommerceAdapter(),
+            WixAdapter(),
+            PrestaShopAdapter(),
+            OpenCartAdapter(),
+            GenericEcommerceAdapter(),
         ]
 
     def register_adapter(self, adapter: BaseScraper) -> None:
@@ -70,7 +84,8 @@ class ScraperFactory:
         raise UnsupportedWebsiteError(
             f"The website '{domain}' is not supported. Supported sources are: "
             "Open Prices (openfoodfacts.org, barcode:*), LocalStore (127.0.0.1:8000), "
-            "Amazon India (amazon.in), Flipkart (flipkart.com), and Croma (croma.com).",
+            "Amazon India (amazon.in), Flipkart (flipkart.com), Croma (croma.com), "
+            "Shopify, WooCommerce, BigCommerce, Wix, PrestaShop, and OpenCart.",
             site=domain
         )
 

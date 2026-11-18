@@ -10,11 +10,12 @@ from scraper.models import CachePolicy, ScraperResult, SourceCategory
 
 
 def test_source_category_enum():
-    """Verify all four approved source categories are strictly defined."""
+    """Verify approved source categories are strictly defined."""
     assert SourceCategory.OPEN_DATA_OBSERVATION.value == "open_data_observation"
     assert SourceCategory.CONTROLLED_DEMO_STORE.value == "controlled_demo_store"
     assert SourceCategory.CREDENTIAL_GATED.value == "credential_gated"
     assert SourceCategory.POLICY_RESTRICTED.value == "policy_restricted"
+    assert SourceCategory.PUBLIC_STORE_API.value == "public_store_api"
 
 
 def test_cache_policy_requires_all_fields_without_defaults():

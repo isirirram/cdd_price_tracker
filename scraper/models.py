@@ -16,6 +16,7 @@ class SourceCategory(str, Enum):
     CONTROLLED_DEMO_STORE = "controlled_demo_store"
     CREDENTIAL_GATED = "credential_gated"
     POLICY_RESTRICTED = "policy_restricted"
+    PUBLIC_STORE_API = "public_store_api"
 
 
 class CachePolicy(BaseModel):
