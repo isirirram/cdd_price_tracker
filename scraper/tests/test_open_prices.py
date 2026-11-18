@@ -65,11 +65,45 @@ def test_open_prices_successful_mock_scrape(mock_get, adapter):
     assert result.product_name == "Tata Tea Gold 500g"
     assert result.current_price == 310.0
     assert result.currency == "INR"
+    assert result.image_url == "https://images.openfoodfacts.org/images/products/890/103/082/5347/front_en.3.400.jpg"
     assert result.source_category == SourceCategory.OPEN_DATA_OBSERVATION
     assert result.is_commercial_store is False
     assert result.cache_policy.allow_historical_storage is True
     assert result.cache_policy.price_ttl_seconds == 86400
     assert "ODbL 1.0" in result.attribution
+
+
+@patch("requests.get")
+def test_open_prices_missing_image_returns_none(mock_get, adapter):
+    """Verify that Open Prices with no image in observation or product catalog returns None."""
+    # Prices API returns item without image_url
+    prices_resp = MagicMock()
+    prices_resp.status_code = 200
+    prices_resp.json.return_value = {
+        "items": [
+            {
+                "id": 102,
+                "product_code": "8901030825347",
+                "product_name": "Tata Tea (No Image)",
+                "price": 300.0,
+                "currency": "INR"
+            }
+        ],
+        "total": 1
+    }
+
+    # Product catalog API returns product without image_url
+    prod_resp = MagicMock()
+    prod_resp.status_code = 200
+    prod_resp.json.return_value = {"product": {"product_name": "Tata Tea (No Image)"}}
+
+    mock_get.side_effect = [prices_resp, prod_resp]
+
+    result = adapter.scrape("barcode:8901030825347")
+    assert result.success is True
+    assert result.current_price == 300.0
+    assert result.image_url is None
+
 
 
 @patch("requests.get")

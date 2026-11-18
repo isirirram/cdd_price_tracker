@@ -87,9 +87,42 @@ def test_amazon_successful_mock_creators_api_response(mock_post, adapter):
     assert result.product_name == "Apple iPhone 12 (128GB) - Blue"
     assert result.current_price == 49999.0
     assert result.currency == "INR"
+    assert result.image_url == "https://m.media-amazon.com/images/I/71ZOtNdaZCL._SL1500_.jpg"
     assert result.site == "amazon"
     assert result.source_category == SourceCategory.CREDENTIAL_GATED
     assert result.is_commercial_store is True
     assert result.cache_policy.allow_historical_storage is False
     assert result.cache_policy.price_ttl_seconds == 3600
     assert result.cache_policy.metadata_ttl_seconds == 86400
+
+
+@patch("requests.post")
+def test_amazon_missing_image_returns_none(mock_post, adapter):
+    """Verify that an API response without images cleanly sets image_url to None."""
+    token_resp = MagicMock()
+    token_resp.status_code = 200
+    token_resp.json.return_value = {"access_token": "mock_bearer_token_123", "expires_in": 3600}
+
+    api_resp = MagicMock()
+    api_resp.status_code = 200
+    api_resp.json.return_value = {
+        "itemsResult": {
+            "items": [
+                {
+                    "asin": "B08L5W4SW6",
+                    "itemInfo": {"title": {"displayValue": "Apple iPhone without Image"}},
+                    "offersV2": {"listings": [{"price": {"amount": 45000.0, "currency": "INR"}}]}
+                }
+            ]
+        }
+    }
+    mock_post.side_effect = [token_resp, api_resp]
+
+    config.set_override("amazon_credential_id", "test_id")
+    config.set_override("amazon_credential_secret", "test_secret")
+
+    result = adapter.scrape("https://www.amazon.in/dp/B08L5W4SW6")
+    assert result.success is True
+    assert result.current_price == 45000.0
+    assert result.image_url is None
+

@@ -182,14 +182,38 @@ class FlipkartAffiliateAdapter(BaseScraper):
                 source_category=SourceCategory.CREDENTIAL_GATED,
                 is_commercial_store=True,
                 error=f"No valid selling price available for Flipkart item '{product_id}'.",
-                cache_policy=self._get_cache_policy()
+                cache_policy=self._get_cache_policy(),
+                image_url=None
             )
+
+        # Extract product image URL if present
+        image_url = None
+        image_urls = base_info.get("imageUrls")
+        if isinstance(image_urls, dict):
+            # Prefer higher resolution: 800x800, 400x400, 200x200, or first valid URL string
+            for resolution in ("800x800", "400x400", "200x200"):
+                val = image_urls.get(resolution)
+                if isinstance(val, str) and (val.startswith("http://") or val.startswith("https://")):
+                    image_url = val
+                    break
+            if not image_url:
+                for val in image_urls.values():
+                    if isinstance(val, str) and (val.startswith("http://") or val.startswith("https://")):
+                        image_url = val
+                        break
+        elif isinstance(image_urls, list) and image_urls:
+            first_val = image_urls[0]
+            if isinstance(first_val, str) and (first_val.startswith("http://") or first_val.startswith("https://")):
+                image_url = first_val
+        elif isinstance(image_urls, str) and (image_urls.startswith("http://") or image_urls.startswith("https://")):
+            image_url = image_urls
 
         return ScraperResult(
             success=True,
             product_name=title or f"Flipkart Product ({product_id})",
             current_price=normalized_price,
             currency=currency,
+            image_url=image_url,
             site=self.SITE_NAME,
             product_url=url,
             source_category=SourceCategory.CREDENTIAL_GATED,

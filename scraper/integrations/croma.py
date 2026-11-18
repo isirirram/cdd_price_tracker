@@ -81,6 +81,7 @@ class CromaPolicyAdapter(BaseScraper):
             is_commercial_store=True,
             error=policy_reason,
             cache_policy=None,  # No cache policy for policy-restricted failures
-            attribution=None
+            attribution=None,
+            image_url=None
         )
 

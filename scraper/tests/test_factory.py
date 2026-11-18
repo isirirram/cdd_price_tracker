@@ -7,10 +7,17 @@ import pytest
 from scraper.exceptions import InvalidUrlError, UnsupportedWebsiteError
 from scraper.integrations import (
     AmazonCreatorsAdapter,
+    BigCommerceAdapter,
     CromaPolicyAdapter,
     FlipkartAffiliateAdapter,
+    GenericEcommerceAdapter,
     LocalStoreAdapter,
+    OpenCartAdapter,
     OpenPricesAdapter,
+    PrestaShopAdapter,
+    ShopifyAdapter,
+    WixAdapter,
+    WooCommerceAdapter,
 )
 from scraper.models import SourceCategory
 from scraper.scraper_factory import ScraperFactory, default_factory, scrape_product
@@ -44,6 +51,49 @@ def test_factory_routes_flipkart():
 def test_factory_routes_croma():
     """Verify Croma URLs map to CromaPolicyAdapter."""
     assert isinstance(default_factory.get_adapter("https://www.croma.com/sample/p/123456"), CromaPolicyAdapter)
+
+
+def test_factory_routes_shopify():
+    """Verify Shopify URLs map to ShopifyAdapter."""
+    assert isinstance(default_factory.get_adapter("https://store.myshopify.com/products/snowboard"), ShopifyAdapter)
+    assert isinstance(default_factory.get_adapter("shopify://store.myshopify.com/products/snowboard"), ShopifyAdapter)
+
+
+def test_factory_routes_woocommerce():
+    """Verify WooCommerce URLs map to WooCommerceAdapter."""
+    assert isinstance(default_factory.get_adapter("https://example.com/product/flying-ninja/"), WooCommerceAdapter)
+    assert isinstance(default_factory.get_adapter("woocommerce://store.com/product/hoodie"), WooCommerceAdapter)
+
+
+def test_factory_routes_bigcommerce():
+    """Verify BigCommerce URLs map to BigCommerceAdapter."""
+    assert isinstance(default_factory.get_adapter("https://store.mybigcommerce.com/products/sample-item"), BigCommerceAdapter)
+    assert isinstance(default_factory.get_adapter("bigcommerce://store.com/products/sample"), BigCommerceAdapter)
+
+
+def test_factory_routes_wix():
+    """Verify Wix URLs map to WixAdapter."""
+    assert isinstance(default_factory.get_adapter("https://store.wixsite.com/site/product-page/summer-dress"), WixAdapter)
+    assert isinstance(default_factory.get_adapter("wix://site.com/product-page/dress"), WixAdapter)
+
+
+def test_factory_routes_prestashop():
+    """Verify PrestaShop URLs map to PrestaShopAdapter."""
+    assert isinstance(default_factory.get_adapter("https://store.com/12-printed-summer-dress.html"), PrestaShopAdapter)
+    assert isinstance(default_factory.get_adapter("prestashop://store.com/12-dress.html"), PrestaShopAdapter)
+
+
+def test_factory_routes_opencart():
+    """Verify OpenCart URLs map to OpenCartAdapter."""
+    assert isinstance(default_factory.get_adapter("https://store.com/index.php?route=product/product&product_id=42"), OpenCartAdapter)
+    assert isinstance(default_factory.get_adapter("opencart://store.com/item?product_id=99"), OpenCartAdapter)
+
+
+def test_factory_routes_generic():
+    """Verify arbitrary shopping website URLs fallback to GenericEcommerceAdapter."""
+    assert isinstance(default_factory.get_adapter("https://www.yeti.com/drinkware/tumblers/21071509045.html"), GenericEcommerceAdapter)
+    assert isinstance(default_factory.get_adapter("https://shop.nordstrom.com/s/cashmere-sweater/567890"), GenericEcommerceAdapter)
+
 
 
 def test_factory_unsupported_website():

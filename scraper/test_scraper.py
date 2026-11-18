@@ -36,7 +36,9 @@ def display_result(result):
     if result.success:
         print(f"Product Title:      {result.product_name}")
         print(f"Current Price:      {result.currency} {result.current_price:,.2f}")
+        print(f"Product Image:      {result.image_url or 'None'}")
     else:
+        print(f"Product Image:      {result.image_url or 'None'}")
         print(f"Error Message:      {result.error}")
 
     if result.cache_policy:
@@ -66,6 +68,13 @@ def main():
         print("  4. Amazon India URL:      https://www.amazon.in/dp/B08L5W4SW6")
         print("  5. Flipkart URL:          https://www.flipkart.com/product/p/itm1234567890123")
         print("  6. Croma URL:             https://www.croma.com/sample-product/p/123456")
+        print("  7. Shopify URL:           https://store.myshopify.com/products/snowboard")
+        print("  8. WooCommerce URL:       https://example.com/product/flying-ninja")
+        print("  9. BigCommerce URL:       https://store.mybigcommerce.com/products/sample-item")
+        print(" 10. Wix URL:               https://store.wixsite.com/site/product-page/summer-dress")
+        print(" 11. PrestaShop URL:        https://store.com/12-printed-summer-dress.html")
+        print(" 12. OpenCart URL:          https://store.com/index.php?route=product/product&product_id=42")
+        print(" 13. Generic E-commerce:    https://www.yeti.com/drinkware/tumblers/21071509045.html")
         print("-" * 65)
         try:
             url = input("Enter shopping product URL or barcode: ").strip()

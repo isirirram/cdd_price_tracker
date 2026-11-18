@@ -84,8 +84,33 @@ def test_flipkart_successful_mock_affiliate_response(mock_get, adapter):
     assert result.product_name == "APPLE iPhone 12 (Blue, 128 GB)"
     assert result.current_price == 48999.0
     assert result.currency == "INR"
+    assert result.image_url == "https://rukminim1.flixcart.com/image/400/400/dummy.jpeg"
     assert result.site == "flipkart"
     assert result.source_category == SourceCategory.CREDENTIAL_GATED
     assert result.is_commercial_store is True
     assert result.cache_policy.allow_historical_storage is False
     assert result.cache_policy.price_ttl_seconds == 86400
+
+
+@patch("requests.get")
+def test_flipkart_missing_image_returns_none(mock_get, adapter):
+    """Verify that an API response without imageUrls cleanly sets image_url to None."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "productBaseInfoV1": {
+            "productId": "MOBFWBYZ8637EKWB",
+            "title": "APPLE iPhone 12 without Image",
+            "flipkartSellingPrice": {"amount": 47999.0, "currency": "INR"}
+        }
+    }
+    mock_get.return_value = mock_resp
+
+    config.set_override("flipkart_affiliate_id", "test_id")
+    config.set_override("flipkart_affiliate_token", "test_token")
+
+    result = adapter.scrape("https://www.flipkart.com/item?pid=MOBFWBYZ8637EKWB")
+    assert result.success is True
+    assert result.current_price == 47999.0
+    assert result.image_url is None
+

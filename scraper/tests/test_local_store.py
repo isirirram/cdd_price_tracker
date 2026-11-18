@@ -79,11 +79,33 @@ def test_local_store_successful_mock_scrape(mock_get, adapter):
     assert result.product_name == "Demo Wireless Noise-Cancelling Headphones"
     assert result.current_price == 1499.0
     assert result.currency == "INR"
+    assert result.image_url == "http://127.0.0.1:8000/static/product-001.jpg"
     assert result.site == "local_store"
     assert result.source_category == SourceCategory.CONTROLLED_DEMO_STORE
     assert result.is_commercial_store is False
     assert result.cache_policy.allow_historical_storage is True
     assert result.cache_policy.price_ttl_seconds == 60
+
+
+@patch("requests.get")
+def test_local_store_missing_image_returns_none(mock_get, adapter):
+    """Verify that a local store response without image_url returns None."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "id": "product-002",
+        "title": "Smart Fitness Band (No Image)",
+        "price": 799.0,
+        "currency": "INR",
+        "in_stock": True
+    }
+    mock_get.return_value = mock_resp
+
+    result = adapter.scrape("http://127.0.0.1:8000/products/product-002")
+    assert result.success is True
+    assert result.current_price == 799.0
+    assert result.image_url is None
+
 
 
 @patch("requests.get")
