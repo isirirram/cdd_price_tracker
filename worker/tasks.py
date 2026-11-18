@@ -21,7 +21,6 @@ def _record_error(oid, message):
         {"$set": {"last_error": message, "last_checked_at": _now()}},
     )
 
-
 @celery_app.task(name="tasks.check_price")
 def check_price(product_id, simulated_price=None):
     try:
@@ -57,6 +56,13 @@ def check_price(product_id, simulated_price=None):
             product_name = result.product_name
             products_collection.update_one(
                 {"_id": oid}, {"$set": {"product_name": product_name}}
+            )
+
+        # Save the product image (scraper branch adds image_url to ScraperResult)
+        image_url = getattr(result, "image_url", None)
+        if image_url and image_url != product.get("image_url"):
+            products_collection.update_one(
+                {"_id": oid}, {"$set": {"image_url": image_url}}
             )
 
         policy = result.cache_policy
@@ -100,8 +106,6 @@ def check_price(product_id, simulated_price=None):
 
     to_email = resolve_recipient(product)
     if not to_email:
-        # No address for this product and no ALERT_EMAIL_TO fallback.
-        # alert_sent stays False, so adding an email later still works.
         print(f"WARNING: no alert email set for product {product_id}")
         return "Target reached, but no email address is set"
 
@@ -114,10 +118,9 @@ def check_price(product_id, simulated_price=None):
             target_price=target_price,
         )
     except EmailNotConfigured as exc:
-        # Leave alert_sent False so it is retried on the next check
         print(f"WARNING: email alert not sent ({exc})")
         return "Target reached, but email is not configured"
-    except Exception as exc:  # SMTP login/network failure
+    except Exception as exc:
         print(f"WARNING: could not send email alert: {exc}")
         return "Target reached, but alert could not be sent"
 
