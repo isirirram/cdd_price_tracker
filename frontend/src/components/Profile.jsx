@@ -17,7 +17,7 @@ function Profile({ onNavigate }) {
       <main className="dashboard-content">
         <section className="welcome-section">
           <h2>My Profile</h2>
-          <p>Manage your account information</p>
+          <p>Manage your account information and notification preferences.</p>
         </section>
 
         <div className="login-card profile-card">
@@ -29,18 +29,49 @@ function Profile({ onNavigate }) {
 
           <form onSubmit={(e) => e.preventDefault()}>
             <label>Full Name</label>
-            <input type="text" placeholder="Enter your name" />
+            <input
+              type="text"
+              placeholder="Enter your name"
+            />
 
             <label>Email Address</label>
-            <input type="email" placeholder="Enter your email" />
+            <input
+              type="email"
+              placeholder="Enter your email"
+            />
 
             <label>Phone Number</label>
-            <input type="tel" placeholder="Enter phone number" />
+            <input
+              type="tel"
+              placeholder="Enter phone number"
+            />
 
             <button type="submit" className="login-button">
               Save Changes
             </button>
           </form>
+
+          <div className="notification-info">
+            <h2>Notification Information</h2>
+
+            <p>
+              <strong>Email Alerts</strong>
+            </p>
+
+            <p>
+              Enter your email address while adding a product
+              to receive an alert when its target price is reached.
+            </p>
+
+            <p>
+              <strong>Telegram Alerts</strong>
+            </p>
+
+            <p>
+              Telegram notifications depend on the bot configuration
+              in the backend.
+            </p>
+          </div>
 
           <button
             className="google-button"

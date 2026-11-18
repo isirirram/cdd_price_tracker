@@ -13,10 +13,20 @@ function ProductCard({ product, onViewHistory, onDelete }) {
   return (
     <div className="product-card">
       <div className="product-image">
-        <span>📦</span>
+        {product.image_url ? (
+          <img
+            src={product.image_url}
+            alt={product.product_name || "Product"}
+            onError={(e) => {
+              e.target.style.display = "none";
+            }}
+          />
+        ) : (
+          <span>📦</span>
+        )}
       </div>
 
-      <h3>{product.product_name}</h3>
+      <h3>{product.product_name || "Product name unavailable"}</h3>
 
       <p>
         Current Price: ₹
@@ -47,6 +57,19 @@ function ProductCard({ product, onViewHistory, onDelete }) {
         Notification:{" "}
         {product.alert_sent ? "Alert sent" : "No alert sent"}
       </p>
+
+      {product.last_checked_at && (
+        <p>
+          Last Checked:{" "}
+          {new Date(product.last_checked_at).toLocaleString("en-IN")}
+        </p>
+      )}
+
+      {product.last_error && (
+        <p className="product-error">
+          {product.last_error}
+        </p>
+      )}
 
       <div className="product-card-actions">
         <button onClick={onViewHistory}>

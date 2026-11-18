@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { getProducts, deleteProduct } from "../services/api";
 import ProductCard from "./ProductCard";
 
@@ -8,7 +8,7 @@ function Dashboard({ onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     try {
       setError("");
       const data = await getProducts();
@@ -18,11 +18,21 @@ function Dashboard({ onNavigate }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchProducts();
-  }, []);
+
+    const handleProductsChanged = () => {
+      fetchProducts();
+    };
+
+    window.addEventListener("products-changed", handleProductsChanged);
+
+    return () => {
+      window.removeEventListener("products-changed", handleProductsChanged);
+    };
+  }, [fetchProducts]);
 
   const handleDelete = async (id) => {
     const confirmed = window.confirm(
@@ -33,6 +43,7 @@ function Dashboard({ onNavigate }) {
 
     try {
       await deleteProduct(id);
+
       setProducts((previous) =>
         previous.filter((product) => product.id !== id)
       );
@@ -63,15 +74,19 @@ function Dashboard({ onNavigate }) {
           <span onClick={() => onNavigate("dashboard")}>
             Dashboard
           </span>
+
           <span onClick={() => onNavigate("products")}>
             My Products
           </span>
+
           <span onClick={() => onNavigate("history")}>
             Price History
           </span>
+
           <span onClick={() => onNavigate("budget")}>
             Budget Tracker
           </span>
+
           <span onClick={() => onNavigate("profile")}>
             Profile
           </span>
@@ -81,6 +96,7 @@ function Dashboard({ onNavigate }) {
       <main className="dashboard-content">
         <section className="welcome-section">
           <h2>Welcome</h2>
+
           <p>
             Track prices, discover deals and save money on
             your favourite products.
@@ -124,7 +140,7 @@ function Dashboard({ onNavigate }) {
             </p>
           )}
 
-          {!loading && products.length > 0 && (
+          {!loading && !error && products.length > 0 && (
             <div className="product-container">
               {products.map((product) => (
                 <ProductCard

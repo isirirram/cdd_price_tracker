@@ -8,6 +8,7 @@ import ProductList from "./components/ProductList";
 import PriceHistory from "./components/PriceHistory";
 import Profile from "./components/Profile";
 import BudgetTracker from "./components/BudgetTracker";
+import ChatBot from "./components/ChatBot";
 
 function App() {
   const [currentPage, setCurrentPage] = useState("login");
@@ -15,6 +16,8 @@ function App() {
   const navigate = (page) => {
     setCurrentPage(page);
   };
+
+  const isAuthenticatedPage = !["login", "signup"].includes(currentPage);
 
   return (
     <>
@@ -45,6 +48,8 @@ function App() {
       {currentPage === "profile" && (
         <Profile onNavigate={navigate} />
       )}
+
+      {isAuthenticatedPage && <ChatBot />}
     </>
   );
 }

@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   getProducts,
   getPriceHistory,
@@ -19,23 +19,43 @@ function PriceHistory({ onNavigate }) {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        setLoading(true);
-        setError("");
+  // Fetch products from backend
+  const fetchProducts = useCallback(async () => {
+    try {
+      setError("");
 
-        const data = await getProducts();
-        setProducts(Array.isArray(data) ? data : []);
-      } catch (err) {
-        setError(err.message || "Unable to load products.");
-      } finally {
-        setLoading(false);
-      }
+      const data = await getProducts();
+      const productList = Array.isArray(data) ? data : [];
+
+      setProducts(productList);
+
+      setSelectedProduct((previous) => {
+        if (!previous) return null;
+
+        return (
+          productList.find((product) => product.id === previous.id) || null
+        );
+      });
+    } catch (err) {
+      setError(err.message || "Unable to load products.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchProducts();
+
+    const handleProductsChanged = () => {
+      fetchProducts();
     };
 
-    fetchProducts();
-  }, []);
+    window.addEventListener("products-changed", handleProductsChanged);
+
+    return () => {
+      window.removeEventListener("products-changed", handleProductsChanged);
+    };
+  }, [fetchProducts]);
 
   // Select product and fetch its details
   const selectProduct = async (product) => {
@@ -189,7 +209,7 @@ function PriceHistory({ onNavigate }) {
           <div>
             <p>{error}</p>
 
-            <button onClick={() => window.location.reload()}>
+            <button onClick={fetchProducts}>
               Retry
             </button>
           </div>
@@ -217,11 +237,23 @@ function PriceHistory({ onNavigate }) {
                     }}
                   >
                     <div className="product-image">
-                      <span style={{ fontSize: "50px" }}>🛍️</span>
+                      {product.image_url ? (
+                        <img
+                          src={product.image_url}
+                          alt={product.product_name || "Product"}
+                          onError={(e) => {
+                            e.target.style.display = "none";
+                          }}
+                        />
+                      ) : (
+                        <span style={{ fontSize: "50px" }}>📦</span>
+                      )}
                     </div>
 
                     <div className="product-info">
-                      <h3>{product.product_name}</h3>
+                      <h3>
+                        {product.product_name || "Product name unavailable"}
+                      </h3>
 
                       <p>
                         Current Price:{" "}
@@ -452,8 +484,8 @@ function PriceHistory({ onNavigate }) {
                     <p>
                       <strong>Cheapest weekday:</strong>{" "}
                       {insights.best_time_to_buy.cheapest_weekday
-                        ? insights.best_time_to_buy.cheapest_weekday.bucket
-                        : "Not enough data"}
+                          ? insights.best_time_to_buy.cheapest_weekday.bucket
+                          : "Not enough data"}
                     </p>
                   </div>
                 )}

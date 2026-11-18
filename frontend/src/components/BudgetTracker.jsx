@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { setBudget, getBudgetPlan } from "../services/api";
 
 function BudgetTracker({ onNavigate }) {
@@ -8,6 +8,42 @@ function BudgetTracker({ onNavigate }) {
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Load previously saved budget
+  const fetchBudgetPlan = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const result = await getBudgetPlan();
+
+      if (result && result.monthly_budget != null) {
+        setBudgetValue(String(result.monthly_budget));
+        setSpent(String(result.spent_this_month ?? 0));
+        setPlan(result);
+      }
+    } catch (err) {
+      setError(err.message || "Unable to load budget details.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBudgetPlan();
+
+    const handleProductsChanged = () => {
+      if (budget) {
+        fetchBudgetPlan();
+      }
+    };
+
+    window.addEventListener("products-changed", handleProductsChanged);
+
+    return () => {
+      window.removeEventListener("products-changed", handleProductsChanged);
+    };
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

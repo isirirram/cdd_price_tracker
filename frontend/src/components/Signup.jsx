@@ -2,8 +2,31 @@
 function Signup({ onNavigate }) {
   const handleSubmit = (e) => {
     e.preventDefault();
-    alert("Signup successful! Connect backend authentication next.");
-    onNavigate("login");
+
+    const form = e.target;
+    const fullName = form.fullName.value.trim();
+    const email = form.email.value.trim();
+    const password = form.password.value;
+    const confirmPassword = form.confirmPassword.value;
+
+    if (!fullName || !email || !password || !confirmPassword) {
+      alert("Please fill in all fields.");
+      return;
+    }
+
+    if (password.length < 6) {
+      alert("Password must contain at least 6 characters.");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      alert("Passwords do not match!");
+      return;
+    }
+
+    // Demo signup (backend registration is not connected)
+    alert("Signup successful! You can now continue to the Dashboard.");
+    onNavigate("dashboard");
   };
 
   return (
@@ -19,18 +42,21 @@ function Signup({ onNavigate }) {
         <form onSubmit={handleSubmit}>
           <input
             type="text"
+            name="fullName"
             placeholder="Full Name"
             required
           />
 
           <input
             type="email"
+            name="email"
             placeholder="Email Address"
             required
           />
 
           <input
             type="password"
+            name="password"
             placeholder="Create Password"
             minLength="6"
             required
@@ -38,6 +64,7 @@ function Signup({ onNavigate }) {
 
           <input
             type="password"
+            name="confirmPassword"
             placeholder="Confirm Password"
             minLength="6"
             required

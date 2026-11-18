@@ -1,5 +1,6 @@
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 // Common API request handler
 const apiRequest = async (endpoint, options = {}) => {
@@ -15,7 +16,9 @@ const apiRequest = async (endpoint, options = {}) => {
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(data.detail || data.message || "Something went wrong");
+      throw new Error(
+        data.detail || data.message || "Something went wrong"
+      );
     }
 
     return data;
@@ -25,7 +28,9 @@ const apiRequest = async (endpoint, options = {}) => {
   }
 };
 
-// Get all products
+// ---------------- PRODUCTS ----------------
+
+// Get all tracked products
 export const getProducts = () => {
   return apiRequest("/products");
 };
@@ -50,28 +55,67 @@ export const deleteProduct = (productId) => {
   });
 };
 
+// ---------------- PRICE TRACKING ----------------
+
 // Get product price history
 export const getPriceHistory = (productId) => {
   return apiRequest(`/products/${productId}/history`);
 };
 
-// Update product target price
-export const updateTargetPrice = (productId, targetPrice) => {
-  return apiRequest(`/products/${productId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ target_price: targetPrice }),
+// Request an immediate price check
+export const checkProductNow = (productId) => {
+  return apiRequest(`/products/${productId}/check`, {
+    method: "POST",
   });
 };
 
-// Get product insights (best time to buy)
+// ---------------- NOTIFICATIONS ----------------
+
+// Update or clear notification email
+export const updateNotifyEmail = (productId, notifyEmail) => {
+  return apiRequest(`/products/${productId}/notify-email`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      notify_email: notifyEmail || null,
+    }),
+  });
+};
+
+// ---------------- INSIGHTS ----------------
+
+// Get best time to buy insights
 export const getProductInsights = (productId) => {
   return apiRequest(`/products/${productId}/insights`);
 };
 
-// Get product price drop report
+// Get price drop report
 export const getProductDrops = (productId) => {
   return apiRequest(`/products/${productId}/drops`);
 };
+
+// ---------------- SALE EVENTS ----------------
+
+// Get all sale events
+export const getSaleEvents = () => {
+  return apiRequest("/sale-events");
+};
+
+// Add a sale event
+export const addSaleEvent = (eventData) => {
+  return apiRequest("/sale-events", {
+    method: "POST",
+    body: JSON.stringify(eventData),
+  });
+};
+
+// Delete a sale event
+export const deleteSaleEvent = (eventId) => {
+  return apiRequest(`/sale-events/${eventId}`, {
+    method: "DELETE",
+  });
+};
+
+// ---------------- BUDGET ----------------
 
 // Get budget plan
 export const getBudgetPlan = () => {
@@ -85,6 +129,26 @@ export const setBudget = (monthlyBudget, spent) => {
     body: JSON.stringify({
       monthly_budget: monthlyBudget,
       spent_this_month: spent,
+      user_id: "demo-user",
+    }),
+  });
+};
+
+// ---------------- CHATBOT ----------------
+
+// Get chatbot status (AI or Offline)
+export const getChatStatus = () => {
+  return apiRequest("/chat/status");
+};
+
+// Send message to chatbot
+export const sendChatMessage = (message, history = []) => {
+  return apiRequest("/chat", {
+    method: "POST",
+    body: JSON.stringify({
+      message,
+      history,
+      user_id: "demo-user",
     }),
   });
 };

@@ -2,7 +2,12 @@
 function Header({ onNavigate }) {
   return (
     <header className="navbar">
-      <h1 className="logo">PRICE TRACKER</h1>
+      <h1
+        className="logo"
+        onClick={() => onNavigate("dashboard")}
+      >
+        PRICE TRACKER
+      </h1>
 
       <nav>
         <span onClick={() => onNavigate("dashboard")}>
@@ -17,10 +22,14 @@ function Header({ onNavigate }) {
           Price History
         </span>
 
-        <span>Profile</span>
-      </nav>
+        <span onClick={() => onNavigate("budget")}>
+          Budget Tracker
+        </span>
 
-      <span onClick={() => onNavigate("budget")}>Budget Tracker</span>
+        <span onClick={() => onNavigate("profile")}>
+          Profile
+        </span>
+      </nav>
     </header>
   );
 }

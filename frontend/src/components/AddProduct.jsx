@@ -5,9 +5,18 @@ function AddProduct({ onAddProduct, onCancel }) {
 
     const formData = new FormData(e.target);
 
+    const targetPrice = Number(formData.get("target_price"));
+
+    // Validate target price
+    if (targetPrice <= 0) {
+      alert("Please enter a valid target price.");
+      return;
+    }
+
+    // Prepare product details for backend
     const product = {
       product_url: formData.get("product_url").trim(),
-      target_price: Number(formData.get("target_price")),
+      target_price: targetPrice,
       notify_email: formData.get("notify_email")?.trim() || null,
     };
 

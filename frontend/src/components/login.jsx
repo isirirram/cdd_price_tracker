@@ -2,13 +2,27 @@
 function Login({ onNavigate }) {
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    const form = e.target;
+    const email = form.email.value.trim();
+    const password = form.password.value;
+
+    if (!email || !password) {
+      alert("Please enter your email and password.");
+      return;
+    }
+
+    // Demo login (backend authentication is not connected)
     onNavigate("dashboard");
+  };
+
+  const handleGoogleLogin = () => {
+    alert("Google login is not configured yet.");
   };
 
   return (
     <div className="login-page">
       <div className="login-card">
-
         <div className="login-icon">
           <span>👤</span>
         </div>
@@ -19,12 +33,14 @@ function Login({ onNavigate }) {
         <form onSubmit={handleSubmit}>
           <input
             type="email"
+            name="email"
             placeholder="Email Address"
             required
           />
 
           <input
             type="password"
+            name="password"
             placeholder="Password"
             required
           />
@@ -44,7 +60,11 @@ function Login({ onNavigate }) {
           <span></span>
         </div>
 
-        <button className="google-button" type="button">
+        <button
+          className="google-button"
+          type="button"
+          onClick={handleGoogleLogin}
+        >
           Continue with Google
         </button>
 
@@ -54,7 +74,6 @@ function Login({ onNavigate }) {
             Signup
           </span>
         </p>
-
       </div>
     </div>
   );

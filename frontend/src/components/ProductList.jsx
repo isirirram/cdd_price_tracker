@@ -1,6 +1,7 @@
 
 import { useEffect, useState } from "react";
 import { getProducts, deleteProduct } from "../services/api";
+import AddProduct from "./AddProduct";
 
 function ProductList({ onNavigate }) {
   const [products, setProducts] = useState([]);
@@ -8,6 +9,8 @@ function ProductList({ onNavigate }) {
   const [siteFilter, setSiteFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [adding, setAdding] = useState(false);
 
   const fetchProducts = async () => {
     try {
@@ -15,7 +18,7 @@ function ProductList({ onNavigate }) {
       setError("");
 
       const data = await getProducts();
-      setProducts(data);
+      setProducts(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.message || "Unable to load products.");
     } finally {
@@ -25,7 +28,36 @@ function ProductList({ onNavigate }) {
 
   useEffect(() => {
     fetchProducts();
+
+    const handleProductsChanged = () => {
+      fetchProducts();
+    };
+
+    window.addEventListener("products-changed", handleProductsChanged);
+
+    return () => {
+      window.removeEventListener("products-changed", handleProductsChanged);
+    };
   }, []);
+
+  const handleAddProduct = async (productData) => {
+    try {
+      setAdding(true);
+      setError("");
+
+      const { addProduct } = await import("../services/api");
+      await addProduct(productData);
+
+      setShowAddProduct(false);
+      await fetchProducts();
+
+      window.dispatchEvent(new Event("products-changed"));
+    } catch (err) {
+      setError(err.message || "Unable to add product.");
+    } finally {
+      setAdding(false);
+    }
+  };
 
   const handleDelete = async (id) => {
     const confirmDelete = window.confirm(
@@ -36,11 +68,14 @@ function ProductList({ onNavigate }) {
 
     try {
       await deleteProduct(id);
+
       setProducts((previous) =>
         previous.filter((product) => product.id !== id)
       );
+
+      window.dispatchEvent(new Event("products-changed"));
     } catch (err) {
-      alert(err.message || "Unable to delete product.");
+      alert(err.message || "Unable to remove product.");
     }
   };
 
@@ -50,10 +85,20 @@ function ProductList({ onNavigate }) {
       .includes(search.toLowerCase());
 
     const matchesSite =
-      siteFilter === "All" || product.site === siteFilter;
+      siteFilter === "All" ||
+      product.site?.toLowerCase() === siteFilter.toLowerCase();
 
     return matchesSearch && matchesSite;
   });
+
+  if (showAddProduct) {
+    return (
+      <AddProduct
+        onAddProduct={handleAddProduct}
+        onCancel={() => setShowAddProduct(false)}
+      />
+    );
+  }
 
   return (
     <div className="dashboard-page">
@@ -97,11 +142,13 @@ function ProductList({ onNavigate }) {
 
           <button
             className="add-product-button"
-            onClick={() => alert("We'll connect Add Product next!")}
+            onClick={() => setShowAddProduct(true)}
           >
             + Add Product
           </button>
         </div>
+
+        {adding && <p>Adding product and fetching details...</p>}
 
         {loading && <p>Loading your products...</p>}
 
@@ -128,28 +175,42 @@ function ProductList({ onNavigate }) {
                 {filteredProducts.map((product) => (
                   <div className="product-card" key={product.id}>
                     <div className="product-image">
-                      <span style={{ fontSize: "55px" }}>🛍️</span>
+                      {product.image_url ? (
+                        <img
+                          src={product.image_url}
+                          alt={product.product_name || "Product"}
+                          onError={(e) => {
+                            e.target.style.display = "none";
+                          }}
+                        />
+                      ) : (
+                        <span style={{ fontSize: "55px" }}>📦</span>
+                      )}
                     </div>
 
                     <div className="product-info">
                       <p className="product-category">
-                        {product.site?.toUpperCase()}
+                        {product.site?.toUpperCase() || "UNKNOWN STORE"}
                       </p>
 
-                      <h3>{product.product_name}</h3>
+                      <h3>
+                        {product.product_name || "Product name unavailable"}
+                      </h3>
 
                       <p>
                         Current Price:{" "}
                         <strong>
                           {product.current_price != null
-                            ? `₹${product.current_price}`
-                            : "Not checked yet"}
+                            ? `₹${Number(product.current_price).toLocaleString("en-IN")}`
+                            : "Waiting for price check"}
                         </strong>
                       </p>
 
                       <p>
                         Target Price:{" "}
-                        <strong>₹{product.target_price}</strong>
+                        <strong>
+                          ₹{Number(product.target_price).toLocaleString("en-IN")}
+                        </strong>
                       </p>
 
                       <button
