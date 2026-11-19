@@ -1,5 +1,6 @@
-celery
-redis
-pymongo
-python-dotenv
-requests
+# Exact versions, so the Docker image builds the same on every machine.
+celery==5.7.0
+redis==8.1.0
+pymongo==4.20.0
+python-dotenv==1.2.4
+requests==2.34.2

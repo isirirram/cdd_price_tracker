@@ -24,7 +24,12 @@ docker compose up --build
 - Frontend: http://localhost:3000
 - API docs (Swagger): http://localhost:8000/docs
 
-Requires Docker Compose v2.24 or newer. Ports 3000, 8000, 27017 and 6379 must be free.
+Requires Docker Compose v2.24 or newer (Docker Desktop 4.27+). Only ports 3000 and 8000 need to
+be free: MongoDB and Redis are reachable only from inside the Docker network. Every service
+restarts automatically if it crashes, and the frontend waits until the API reports healthy.
+
+Useful commands: `docker compose ps` (status), `docker compose logs -f worker` (watch price
+checks and alerts), `docker compose down` (stop; data is kept in the `mongo_data` volume).
 
 ## Live demo of a price-drop alert
 

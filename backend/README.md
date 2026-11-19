@@ -328,9 +328,9 @@ the `recommended` list by email.
 
 ### Person 5: DevOps, CI/CD & Docker
 
-- The backend `Dockerfile` is in `backend/`. App entrypoint: `main:app`, port `8000`.
+- The backend image is built from `Dockerfile.backend` in the repo root. App entrypoint: `main:app`, port `8000`.
 - Run the tests in CI from `backend/` with: `python -m pytest -v` (no database
-  needed, 23 tests).
+  needed, 68 tests).
 - Inside docker-compose use `MONGO_URI=mongodb://mongo:27017/price_tracker`.
   The backend retries the MongoDB connection for about 15 seconds on startup,
   so it tolerates starting before the database is ready.

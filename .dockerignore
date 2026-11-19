@@ -1,28 +1,36 @@
+# Files Docker should NOT send into the build.
+# Unlike .gitignore, a pattern here only matches at the repo root unless it
+# starts with **/ - so "node_modules/" alone would still copy frontend/node_modules
+# (macOS binaries) over the Linux ones that `npm ci` installed in the image.
 
+# Git and CI
 .git
 .github
 .gitignore
 
-.env
-.env.*
+# Secrets: never bake .env files into an image (root or any subfolder)
+**/.env
+**/.env.*
 !.env.example
 
-venv/
-.venv/
-__pycache__/
-*.pyc
-.pytest_cache/
+# Python
+**/venv
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/celerybeat-schedule*
+**/.coverage
+**/htmlcov
 
-node_modules/
-dist/
+# Node / frontend build output
+**/node_modules
+**/dist
+**/npm-debug.log*
 
-.idea/
-.vscode/
-
-*.log
-.coverage
-htmlcov/
-
-.DS_Store
-Thumbs.db
-
+# Editors and OS
+**/.idea
+**/.vscode
+**/.DS_Store
+**/Thumbs.db
+**/*.log
