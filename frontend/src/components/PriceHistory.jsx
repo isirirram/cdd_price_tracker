@@ -7,6 +7,8 @@ import {
   getProductDrops,
 } from "../services/api";
 import Header from "./Header";
+import ProductImage from "./ProductImage";
+import CompareStores from "./CompareStores";
 
 function PriceHistory({ onNavigate, initialProductId }) {
   const [products, setProducts] = useState([]);
@@ -189,9 +191,7 @@ function PriceHistory({ onNavigate, initialProductId }) {
                           : "1px solid #ddd",
                     }}
                   >
-                    <div className="product-image">
-                      <span style={{ fontSize: "50px" }}>🛍️</span>
-                    </div>
+                    <ProductImage product={product} size={50} />
 
                     <div className="product-info">
                       <h3>{product.product_name}</h3>
@@ -359,6 +359,9 @@ function PriceHistory({ onNavigate, initialProductId }) {
                 </>
               )}
             </div>
+
+            {/* SAME PRODUCT ON OTHER STORES */}
+            <CompareStores key={selectedProduct.id} product={selectedProduct} />
 
             {/* BEST TIME TO BUY */}
             {insights && (

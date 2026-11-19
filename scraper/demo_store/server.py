@@ -24,7 +24,7 @@ DEFAULT_CATALOG: Dict[str, Dict[str, Any]] = {
         "currency": "INR",
         "in_stock": True,
         "category": "Audio",
-        "image_url": "http://127.0.0.1:8000/static/product-001.jpg"
+        "image_url": "http://localhost:8000/static/product-001.svg"
     },
     "product-002": {
         "id": "product-002",
@@ -33,7 +33,7 @@ DEFAULT_CATALOG: Dict[str, Dict[str, Any]] = {
         "currency": "INR",
         "in_stock": True,
         "category": "Wearables",
-        "image_url": "http://127.0.0.1:8000/static/product-002.jpg"
+        "image_url": "http://localhost:8000/static/product-002.svg"
     },
     "product-003": {
         "id": "product-003",
@@ -42,7 +42,7 @@ DEFAULT_CATALOG: Dict[str, Dict[str, Any]] = {
         "currency": "INR",
         "in_stock": True,
         "category": "Peripherals",
-        "image_url": "http://127.0.0.1:8000/static/product-003.jpg"
+        "image_url": "http://localhost:8000/static/product-003.svg"
     },
     "product-004": {
         "id": "product-004",
@@ -51,7 +51,7 @@ DEFAULT_CATALOG: Dict[str, Dict[str, Any]] = {
         "currency": "INR",
         "in_stock": True,
         "category": "Peripherals",
-        "image_url": "http://127.0.0.1:8000/static/product-004.jpg"
+        "image_url": "http://localhost:8000/static/product-004.svg"
     },
     "product-005": {
         "id": "product-005",
@@ -60,7 +60,7 @@ DEFAULT_CATALOG: Dict[str, Dict[str, Any]] = {
         "currency": "INR",
         "in_stock": True,
         "category": "Cameras",
-        "image_url": "http://127.0.0.1:8000/static/product-005.jpg"
+        "image_url": "http://localhost:8000/static/product-005.svg"
     }
 }
 
@@ -185,7 +185,7 @@ class DemoStoreRequestHandler(BaseHTTPRequestHandler):
         logger.debug("%s - %s", self.address_string(), format % args)
 
 
-def run_server(port: int = 8000, host: str = "127.0.0.1") -> HTTPServer:
+def run_server(port: int = 8001, host: str = "127.0.0.1") -> HTTPServer:
     """Instantiate and start the HTTP server bound strictly to 127.0.0.1."""
     if host != "127.0.0.1":
         raise ValueError("Security violation: LocalStore server must bind exclusively to 127.0.0.1.")
@@ -204,7 +204,7 @@ def reset_catalog():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Local Demonstration Storefront Server")
-    parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")
+    parser.add_argument("--port", type=int, default=8001, help="Port to listen on (default: 8001)")
     args = parser.parse_args()
 
     httpd = run_server(port=args.port, host="127.0.0.1")

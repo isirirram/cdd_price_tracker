@@ -28,7 +28,7 @@ from pydantic import ValidationError
 import task_queue
 from analytics import build_budget_plan, build_drop_report, build_insights
 from models import ProductCreate
-from product_service import create_product
+from product_service import UnsupportedSiteError, create_product
 
 DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
@@ -199,7 +199,10 @@ class ChatTools:
         except ValidationError as exc:
             problems = "; ".join(f"{e['loc'][-1]}: {e['msg']}" for e in exc.errors())
             return {"error": f"Could not add product ({problems})"}
-        doc = create_product(self.db, payload)
+        try:
+            doc = create_product(self.db, payload)
+        except UnsupportedSiteError as exc:
+            return {"error": str(exc)}
         queued = task_queue.queue_price_check(str(doc["_id"]))
         self.actions.append({"type": "product_added", "product_id": str(doc["_id"])})
         return {

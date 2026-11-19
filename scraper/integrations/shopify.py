@@ -258,7 +258,7 @@ class ShopifyAdapter(BaseScraper):
                 product_url=url,
                 source_category=SourceCategory.PUBLIC_STORE_API,
                 is_commercial_store=True,
-                error=f"Failed to extract Shopify product data: {str(e)}",
+                error=security.describe_error(e, "Failed to extract Shopify product data"),
                 cache_policy=self._get_cache_policy()
             )
 

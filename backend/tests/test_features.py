@@ -29,7 +29,7 @@ def add_product(client, name="P", target=50000):
     r = client.post(
         "/products",
         json={
-            "product_url": "https://www.amazon.in/dp/X",
+            "product_url": "https://shop.example.com/products/x",
             "target_price": target,
             "product_name": name,
         },

@@ -16,6 +16,9 @@ from urllib.parse import urljoin, urlparse
 import requests
 
 from scraper.exceptions import InvalidUrlError
+from scraper.robots import USER_AGENT_TOKEN, RobotsChecker, RobotsDisallowedError
+
+__all__ = ["RobotsDisallowedError", "safe_get", "validate_safe_url", "describe_error"]
 
 logger = logging.getLogger(__name__)
 
@@ -149,22 +152,55 @@ def validate_safe_url(url: str, allow_local: bool = False) -> str:
     return clean_url
 
 
+# We identify ourselves honestly instead of pretending to be a browser, so
+# sites can recognise us and their robots.txt rules for us apply.
+USER_AGENT = (
+    f"Mozilla/5.0 (compatible; {USER_AGENT_TOKEN}/1.0; "
+    "+https://github.com/isirirram/cdd_price_tracker)"
+)
+
+# Tests switch this off for adapters that are tested with mocked HTTP;
+# tests/test_robots.py covers the robots.txt logic itself.
+ROBOTS_CHECK_ENABLED = True
+
+
+def _fetch_robots(robots_url: str):
+    resp = safe_get(robots_url, timeout=5, check_robots=False)
+    return resp.status_code, resp.text
+
+
+robots_checker = RobotsChecker(_fetch_robots)
+
+
+def describe_error(exc: Exception, prefix: str) -> str:
+    """Error text for a failed scrape. robots.txt refusals are shown as-is."""
+    if isinstance(exc, RobotsDisallowedError):
+        return exc.message
+    return f"{prefix}: {exc}"
+
+
 def safe_get(
     url: str,
     headers: Optional[Dict[str, str]] = None,
     timeout: int = 10,
     max_redirects: int = 3,
-    allow_local: bool = False
+    allow_local: bool = False,
+    check_robots: bool = True,
 ) -> requests.Response:
     """
     Perform an HTTP GET request with SSRF validation across all redirects.
 
-    Validates initial URL and any redirect destinations against private IP spaces.
+    Validates initial URL and any redirect destinations against private IP spaces,
+    and checks every URL (redirects included) against the site's robots.txt.
+
+    Raises:
+        RobotsDisallowedError: if robots.txt doesn't allow the URL.
     """
     clean_url = validate_safe_url(url, allow_local=allow_local)
+    check_robots = check_robots and ROBOTS_CHECK_ENABLED and not allow_local
 
     default_headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 SmartPriceTracker/1.0",
+        "User-Agent": USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7",
         "Accept-Language": "en-US,en;q=0.9,hi;q=0.8",
     }
@@ -179,6 +215,9 @@ def safe_get(
     redirects_followed = 0
 
     while True:
+        if check_robots:
+            robots_checker.check(curr_url)
+
         resp = session.get(
             curr_url,
             headers=default_headers,

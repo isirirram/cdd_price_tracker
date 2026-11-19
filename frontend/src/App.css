@@ -586,3 +586,49 @@ select:focus {
   flex-shrink: 0;
   margin: 0;
 }
+
+/* Scraped product photo inside the card's image box */
+.product-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.product-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* Price comparison across stores */
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 15px 0;
+}
+
+.compare-table th,
+.compare-table td {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid #e5e0d0;
+}
+
+.compare-table tr.cheapest {
+  background: #eaf5ea;
+  font-weight: 600;
+}
+
+.compare-form {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.compare-form input {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}

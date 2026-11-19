@@ -1,11 +1,18 @@
 
-name: CI - Smart Price Tracker
+name: CI/CD - Smart Price Tracker
+
+# CI runs on every push and pull request to main.
+# CD (publishing Docker images to GHCR) runs only after ALL CI jobs pass,
+# and only for pushes to main, never for pull requests.
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   backend-and-scraper-tests:
@@ -82,3 +89,53 @@ jobs:
 
       - name: Build Docker images
         run: docker compose build
+
+  publish:
+    name: Publish Docker Images to GHCR
+    runs-on: ubuntu-latest
+    needs: [backend-and-scraper-tests, frontend-check, docker-build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.backend
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/smart-price-tracker-backend:latest
+            ghcr.io/${{ github.repository_owner }}/smart-price-tracker-backend:${{ github.sha }}
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.frontend
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/smart-price-tracker-frontend:latest
+            ghcr.io/${{ github.repository_owner }}/smart-price-tracker-frontend:${{ github.sha }}
+
+      - name: Build and push worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.worker
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/smart-price-tracker-worker:latest
+            ghcr.io/${{ github.repository_owner }}/smart-price-tracker-worker:${{ github.sha }}

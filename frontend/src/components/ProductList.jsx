@@ -118,9 +118,13 @@ function ProductList({ onNavigate }) {
             onChange={(e) => setSiteFilter(e.target.value)}
           >
             <option value="All">All Websites</option>
-            <option value="amazon">Amazon</option>
-            <option value="flipkart">Flipkart</option>
-            <option value="other">Other</option>
+            {[...new Set(products.map((p) => p.site).filter(Boolean))]
+              .sort()
+              .map((site) => (
+                <option key={site} value={site}>
+                  {site}
+                </option>
+              ))}
           </select>
 
           <button

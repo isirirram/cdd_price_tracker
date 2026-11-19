@@ -120,10 +120,15 @@ MongoDB enforces these schemas. A write with the wrong types is rejected with
 | `user_id` | string | `"demo-user"` for now (no login yet) |
 | `product_name` | string | placeholder until the first price check fills it in |
 | `product_url` | string | |
-| `site` | string | `"amazon"`, `"flipkart"` or `"other"` (set from the URL) |
+| `site` | string | Store name, e.g. `"Demo Store"` or the store's domain (set from the URL, then by the worker) |
 | `target_price` | number | must be > 0 |
 | `current_price` | number or **null** | `null` until the first price check |
-| `alert_sent` | bool | **added to the contract** for duplicate-alert prevention |
+| `alert_sent` | bool | **added to the contract** for duplicate-alert prevention (claimed atomically by the worker) |
+| `alert_sent_at` | datetime or null | when the current alert was sent |
+| `notify_email` | string or null | alert email (falls back to `ALERT_EMAIL_TO`) |
+| `telegram_chat_id` | string or null | Telegram chat for alerts (falls back to `TELEGRAM_CHAT_ID`) |
+| `group_id` | string or null | id of the first product in a price-comparison group |
+| `platform` | string or null | scraper platform, e.g. `shopify`, `woocommerce`, `local_store` |
 | `created_at` | datetime | UTC |
 
 ### `price_history`: one document per price check
@@ -172,7 +177,7 @@ Base URL locally: `http://localhost:8000`. Full interactive docs at `/docs`.
 
 ```json
 {
-  "product_url": "https://www.amazon.in/dp/XXXX",
+  "product_url": "https://store.example.com/products/xxxx",
   "target_price": 45000,
   "product_name": "optional",
   "user_id": "optional, defaults to demo-user"
@@ -186,8 +191,8 @@ Response (same shape as each item in `GET /products`):
   "id": "6af3f40b4d8dcbb518fcc6dc",
   "user_id": "demo-user",
   "product_name": "Pending first price check",
-  "product_url": "https://www.amazon.in/dp/XXXX",
-  "site": "amazon",
+  "product_url": "https://store.example.com/products/xxxx",
+  "site": "store.example.com",
   "target_price": 45000.0,
   "current_price": null,
   "alert_sent": false,
@@ -215,6 +220,8 @@ Response (same shape as each item in `GET /products`):
 | DELETE | `/sale-events/{id}` | Remove one |
 | PUT | `/budget` | **Budget tracking:** set `{"monthly_budget": 60000, "spent_this_month": 0}` |
 | GET | `/budget` | Best deals that fit in the remaining budget |
+| GET | `/products/{id}/compare` | **Price comparison:** the same product on every store it's tracked on, cheapest first |
+| POST | `/products/{id}/compare` | Add another Shopify / WooCommerce store: `{"product_url": "https://store.com/products/x"}` (400 for other platforms, 409 if already added) |
 
 **Insights** (`/products/{id}/insights`). Key fields: `recommendation`
 (`buy_now`, `wait`, `neutral` or `not_enough_data`), `reason`, `confidence`
@@ -234,6 +241,9 @@ historical average, best deals first, that fit in the remaining budget),
 `recommended_total`, `left_after_recommended`, `skipped[]` (with `reason`:
 `over_budget` or `no_deal_yet`) and `waiting_for_first_price[]`. It does not
 track purchases; `spent_this_month` is set manually.
+
+Amazon, Flipkart and Croma links are rejected with **400** on `POST /products`
+(no partner API access; their terms forbid scraping).
 
 ### Error codes
 
@@ -266,7 +276,7 @@ get_price(url) -> {"name": str, "price": float}
 
 Return `price` as a plain float (no "₹" or commas). Suggested layout:
 `scraper/__init__.py` (picks the parser by hostname), one file per site
-(`amazon.py`, `flipkart.py`), and `test_scrape.py` (`python test_scrape.py <url>`).
+(`shopify.py`, `woocommerce.py`, ...), and `test_scrape.py` (`python test_scrape.py <url>`).
 
 ### Person 3: Worker, Scheduler & Alerts
 

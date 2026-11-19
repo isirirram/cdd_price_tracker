@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from database import get_db
 from main import app
 
-VALID = {"product_url": "https://www.amazon.in/dp/TEST123", "target_price": 50000}
+VALID = {"product_url": "https://shop.example.com/products/test-phone", "target_price": 50000}
 MISSING_ID = "507f1f77bcf86cd799439011"  # valid format, not in DB
 
 
@@ -28,7 +28,7 @@ def test_add_product(client):
     r = client.post("/products", json=VALID)
     assert r.status_code == 201
     body = r.json()
-    assert body["site"] == "amazon"
+    assert body["site"] == "shop.example.com"
     assert body["target_price"] == 50000
     assert body["alert_sent"] is False
 
@@ -173,3 +173,105 @@ def test_clear_notify_email(client):
 def test_update_notify_email_missing_product(client):
     r = client.patch(f"/products/{MISSING_ID}/notify-email", json={"notify_email": "a@b.com"})
     assert r.status_code == 404
+
+
+# ------------------------------------------------ unsupported sites
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.amazon.in/dp/B08L5W4SW6",
+        "https://amzn.in/d/abc",
+        "https://www.flipkart.com/x/p/itm123",
+        "https://dl.flipkart.com/dl/item",
+        "https://www.croma.com/x/p/123",
+    ],
+)
+def test_amazon_flipkart_croma_rejected(client, db, url):
+    r = client.post("/products", json={**VALID, "product_url": url})
+    assert r.status_code == 400
+    assert "not supported" in r.json()["detail"]
+    assert db.products.count_documents({}) == 0
+
+
+def test_lookalike_domain_is_not_blocked(client):
+    # "notamazon.example" must not be treated as Amazon
+    r = client.post("/products", json={**VALID, "product_url": "https://notamazon.example/products/x"})
+    assert r.status_code == 201
+
+
+# --------------------------------------------------- telegram chat id
+def test_add_product_with_telegram_chat(client):
+    r = client.post("/products", json={**VALID, "telegram_chat_id": "-1001234567890"})
+    assert r.status_code == 201
+    assert r.json()["telegram_chat_id"] == "-1001234567890"
+
+
+@pytest.mark.parametrize("bad", ["abc", "12", "@no", "1; DROP"])
+def test_bad_telegram_chat_rejected(client, bad):
+    r = client.post("/products", json={**VALID, "telegram_chat_id": bad})
+    assert r.status_code == 400
+
+
+# ------------------------------------------------- price comparison
+SHOPIFY_B = "https://store-b.example.com/products/test-phone"
+WOO_C = "https://store-c.example.com/product/test-phone/"
+
+
+def test_compare_single_store(client):
+    pid = client.post("/products", json=VALID).json()["id"]
+    r = client.get(f"/products/{pid}/compare")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["store_count"] == 1
+    assert body["cheapest_id"] is None  # no price checked yet
+
+
+def test_compare_adds_stores_and_finds_cheapest(client, db):
+    main = client.post(
+        "/products", json={**VALID, "notify_email": "me@example.com"}
+    ).json()
+    b = client.post(f"/products/{main['id']}/compare", json={"product_url": SHOPIFY_B})
+    assert b.status_code == 201
+    # adding from a linked product joins the same group
+    c = client.post(f"/products/{b.json()['id']}/compare", json={"product_url": WOO_C})
+    assert c.status_code == 201
+    assert b.json()["group_id"] == c.json()["group_id"] == main["id"]
+    # alert settings are copied to the new store
+    assert c.json()["notify_email"] == "me@example.com"
+    assert c.json()["target_price"] == main["target_price"]
+
+    for pid, price in ((main["id"], 52000), (b.json()["id"], 49999), (c.json()["id"], 51000)):
+        db.products.update_one({"_id": ObjectId(pid)}, {"$set": {"current_price": price}})
+
+    body = client.get(f"/products/{c.json()['id']}/compare").json()
+    assert body["store_count"] == 3
+    assert body["cheapest_id"] == b.json()["id"]
+    assert body["cheapest_site"] == "store-b.example.com"
+    assert body["max_saving"] == 2001
+    assert [o["current_price"] for o in body["offers"]] == [49999, 51000, 52000]
+    assert [o["platform"] for o in body["offers"]] == ["shopify", "woocommerce", "shopify"]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.amazon.in/dp/B08L5W4SW6",
+        "https://example.com/some/page",
+        "http://127.0.0.1:8001/products/product-001",
+    ],
+)
+def test_compare_only_shopify_and_woocommerce(client, url):
+    pid = client.post("/products", json=VALID).json()["id"]
+    r = client.post(f"/products/{pid}/compare", json={"product_url": url})
+    assert r.status_code == 400
+
+
+def test_compare_duplicate_link_rejected(client):
+    pid = client.post("/products", json=VALID).json()["id"]
+    assert client.post(f"/products/{pid}/compare", json={"product_url": SHOPIFY_B}).status_code == 201
+    assert client.post(f"/products/{pid}/compare", json={"product_url": SHOPIFY_B}).status_code == 409
+    assert client.post(f"/products/{pid}/compare", json={"product_url": VALID["product_url"]}).status_code == 409
+
+
+def test_compare_missing_product(client):
+    assert client.get(f"/products/{MISSING_ID}/compare").status_code == 404

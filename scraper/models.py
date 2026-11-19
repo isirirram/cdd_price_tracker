@@ -69,7 +69,7 @@ class ScraperResult(BaseModel):
     )
     site: str = Field(
         ...,
-        description="Target site identifier (e.g., 'open_prices', 'local_store', 'amazon', 'flipkart', 'croma')."
+        description="Target site identifier (e.g., 'open_prices', 'local_store', 'shopify', 'woocommerce')."
     )
     product_url: str = Field(
         ...,
@@ -97,7 +97,7 @@ class ScraperResult(BaseModel):
     )
     attribution: Optional[str] = Field(
         default=None,
-        description="Mandatory legal attribution string (e.g., ODbL 1.0 or Amazon Associate notice)."
+        description="Mandatory legal attribution string (e.g., ODbL 1.0 for Open Prices)."
     )
 
     @field_validator("current_price")

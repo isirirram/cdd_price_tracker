@@ -16,6 +16,9 @@ function AddProduct({ onAddProduct, onCancel }) {
     const email = formData.get("notify_email").trim();
     if (email) product.notify_email = email;
 
+    const telegram = formData.get("telegram_chat_id").trim();
+    if (telegram) product.telegram_chat_id = telegram;
+
     try {
       setSaving(true);
       setError("");
@@ -57,6 +60,15 @@ function AddProduct({ onAddProduct, onCancel }) {
             type="email"
             name="notify_email"
             placeholder="you@example.com"
+          />
+
+          <label>Telegram chat ID for alert (optional)</label>
+          <input
+            type="text"
+            name="telegram_chat_id"
+            placeholder="e.g. 123456789 (message the bot, then use your chat id)"
+            pattern="-?[0-9]{3,20}|@[A-Za-z0-9_]{5,32}"
+            title="A numeric Telegram chat id, or @channelname"
           />
 
           {error && <p style={{ color: "#E35336" }}>{error}</p>}
