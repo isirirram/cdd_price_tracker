@@ -35,6 +35,10 @@ PRODUCTS_VALIDATOR = {
             "current_price": {"bsonType": NUMBER + ["null"]},
             "alert_sent": {"bsonType": "bool"},
             "notify_email": {"bsonType": ["string", "null"]},
+            "telegram_chat_id": {"bsonType": ["string", "null"]},
+            "alert_sent_at": {"bsonType": ["date", "null"]},
+            "group_id": {"bsonType": ["string", "null"]},
+            "platform": {"bsonType": ["string", "null"]},
             "image_url": {"bsonType": ["string", "null"]},
             "created_at": {"bsonType": "date"},
             "last_checked_at": {"bsonType": ["date", "null"]},
@@ -139,6 +143,7 @@ def init_db(db: Database) -> None:
 
     db.products.create_index([("created_at", DESCENDING)])
     db.products.create_index([("user_id", ASCENDING)])
+    db.products.create_index([("group_id", ASCENDING)])
     db.price_history.create_index(
         [("product_id", ASCENDING), ("checked_at", ASCENDING)]
     )

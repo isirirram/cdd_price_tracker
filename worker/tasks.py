@@ -6,7 +6,9 @@ from bson.errors import InvalidId
 
 from celery_app import celery_app
 from database import price_history_collection, products_collection
-from notifications import EmailNotConfigured, resolve_recipient, send_email_alert
+from pymongo import ReturnDocument
+
+from notifications import send_price_alerts
 from scraper_adapter import get_scraper_result
 
 PLACEHOLDER_NAME = "Pending first price check"
@@ -34,14 +36,14 @@ def _website_name(scraped_site, product_url):
     if site in FRIENDLY_SITE_NAMES:
         return FRIENDLY_SITE_NAMES[site]
     if site and site not in PLATFORM_SITES:
-        return site  # amazon, flipkart, croma, or a domain from the generic scraper
+        return site  # e.g. croma, or a domain from the generic scraper
     host = (urlparse(product_url).hostname or "").lower()
     return host.removeprefix("www.") or "other"
 
 
 def _record_error(oid, message):
     # Saved on the product so the frontend can show WHY there is no price yet
-    # (e.g. "Amazon API credentials missing") instead of "Pending" forever.
+    # (e.g. "robots.txt disallows this page") instead of "Pending" forever.
     products_collection.update_one(
         {"_id": oid},
         {"$set": {"last_error": message, "last_checked_at": _now()}},
@@ -99,6 +101,8 @@ def check_price(product_id, simulated_price=None):
             updates["image_url"] = image_url
 
         updates["site"] = _website_name(result.site, product_url)
+        # Raw platform (shopify, woocommerce, local_store, ...) for price comparison
+        updates["platform"] = (result.site or "").strip().lower() or None
 
     if current_price <= 0:
         _record_error(oid, "Scraper returned a non-positive price")
@@ -123,35 +127,42 @@ def check_price(product_id, simulated_price=None):
     # 4. Alert logic: send once when price first reaches the target,
     #    re-arm when it goes back above the target.
     if current_price > target_price:
-        if product.get("alert_sent"):
-            products_collection.update_one({"_id": oid}, {"$set": {"alert_sent": False}})
+        products_collection.update_one(
+            {"_id": oid, "alert_sent": True}, {"$set": {"alert_sent": False}}
+        )
         return "Price checked successfully!"
 
-    if product.get("alert_sent"):
+    # Claim the alert atomically BEFORE sending. If two checks of the same
+    # product run at the same time (Beat + "Check Now", or two workers),
+    # only one of them gets the document back here, so only one alert goes out.
+    claimed = products_collection.find_one_and_update(
+        {"_id": oid, "alert_sent": {"$ne": True}},
+        {"$set": {"alert_sent": True, "alert_sent_at": _now()}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if claimed is None:
         return "Alert already sent"
 
-    to_email = resolve_recipient(product)
-    if not to_email:
-        print(f"WARNING: no alert email set for product {product_id}")
-        return "Target reached, but no email address is set"
+    sent, problems = send_price_alerts(
+        claimed,
+        product_name=product_name,
+        product_url=product_url,
+        current_price=current_price,
+        target_price=target_price,
+    )
 
-    try:
-        send_email_alert(
-            to_email=to_email,
-            product_name=product_name,
-            product_url=product_url,
-            current_price=current_price,
-            target_price=target_price,
+    if not sent:
+        # Nothing was delivered: give the claim back so the next check retries.
+        products_collection.update_one(
+            {"_id": oid}, {"$set": {"alert_sent": False, "alert_sent_at": None}}
         )
-    except EmailNotConfigured as exc:
-        print(f"WARNING: email alert not sent ({exc})")
-        return "Target reached, but email is not configured"
-    except Exception as exc:
-        print(f"WARNING: could not send email alert: {exc}")
-        return "Target reached, but alert could not be sent"
+        reason = "; ".join(problems) or "no alert channel is set up"
+        print(f"WARNING: alert for product {product_id} not sent: {reason}")
+        return f"Target reached, but alert not sent: {reason}"
 
-    products_collection.update_one({"_id": oid}, {"$set": {"alert_sent": True}})
-    return f"Price drop alert emailed to {to_email}"
+    if problems:
+        print(f"WARNING: some alert channels failed for {product_id}: {'; '.join(problems)}")
+    return f"Price drop alert sent via {', '.join(sent)}"
 
 
 @celery_app.task(name="tasks.enqueue_all_products")

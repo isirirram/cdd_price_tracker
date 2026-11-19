@@ -8,15 +8,16 @@ Safe to re-run: it replaces the previous demo products.
 """
 import random
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlparse
 
 from database import get_db, init_db
 
-# (name, url, usual price, target price)
+# (name, demo store url, usual price, target price). The usual prices match
+# the demo store's catalogue, so the worker's live checks continue the history.
+DEMO_STORE = "http://127.0.0.1:8001/products"
 DEMO_PRODUCTS = [
-    ("Demo Laptop (demo)", "https://www.amazon.in/dp/DEMO001", 55000, 50000),
-    ("Demo Headphones (demo)", "https://www.flipkart.com/demo/p/DEMO002", 3000, 2500),
-    ("Demo Phone (demo)", "https://www.amazon.in/dp/DEMO003", 18000, 16000),
+    ("Demo Wireless Noise-Cancelling Headphones", f"{DEMO_STORE}/product-001", 1499, 1200),
+    ("Demo RGB Mechanical Gaming Keyboard", f"{DEMO_STORE}/product-003", 3999, 3500),
+    ("Demo 4K Ultra-HD USB Webcam", f"{DEMO_STORE}/product-005", 4999, 4200),
 ]
 
 
@@ -37,7 +38,7 @@ def main():
     db = get_db()
     init_db(db)
 
-    old = list(db.products.find({"product_name": {"$regex": r"\(demo\)$"}}))
+    old = list(db.products.find({"seeded": True}))
     if old:
         ids = [p["_id"] for p in old]
         db.price_history.delete_many({"product_id": {"$in": ids}})
@@ -46,14 +47,13 @@ def main():
     now = datetime.now(timezone.utc)
     for name, url, base, target in DEMO_PRODUCTS:
         prices = make_prices(base)
-        host = urlparse(url).hostname or ""
-        site = "amazon" if "amazon" in host else "flipkart"
         result = db.products.insert_one(
             {
                 "user_id": "demo-user",
                 "product_name": name,
                 "product_url": url,
-                "site": site,
+                "site": "Demo Store",
+                "seeded": True,  # lets a re-run find and replace these
                 "target_price": float(target),
                 "current_price": float(prices[-1][1]),
                 "alert_sent": False,

@@ -3,10 +3,9 @@ const LINKS = [
   ["products", "My Products"],
   ["history", "Price History"],
   ["budget", "Budget Tracker"],
-  ["profile", "Profile"],
 ];
 
-// Shared navbar used by every page after login
+// Shared navbar used by every page
 function Header({ onNavigate, active }) {
   return (
     <header className="navbar">

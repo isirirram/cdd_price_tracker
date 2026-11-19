@@ -37,26 +37,26 @@ def clean_state():
 
 def test_local_store_can_handle(adapter):
     """Verify URL detection for localstore."""
-    assert adapter.can_handle("http://127.0.0.1:8000/products/product-001")
-    assert adapter.can_handle("http://localhost:8000/products/product-002")
+    assert adapter.can_handle("http://127.0.0.1:8001/products/product-001")
+    assert adapter.can_handle("http://localhost:8001/products/product-002")
     assert adapter.can_handle("localstore://product-001")
     assert not adapter.can_handle("https://amazon.in/dp/B08L5W4SW6")
 
 
 def test_local_store_extract_product_id(adapter):
     """Verify product ID extraction."""
-    assert adapter.extract_product_id("http://127.0.0.1:8000/products/product-001") == "product-001"
+    assert adapter.extract_product_id("http://127.0.0.1:8001/products/product-001") == "product-001"
     assert adapter.extract_product_id("localstore://product-999") == "product-999"
-    assert adapter.extract_product_id("http://127.0.0.1:8000/invalid") is None
+    assert adapter.extract_product_id("http://127.0.0.1:8001/invalid") is None
 
 
 def test_local_store_offline_behavior(adapter):
     """Verify clean, friendly error when local server is offline."""
     with patch("requests.get", side_effect=requests.exceptions.ConnectionError("Connection refused")):
-        result = adapter.scrape("http://127.0.0.1:8000/products/product-001")
+        result = adapter.scrape("http://127.0.0.1:8001/products/product-001")
         assert result.success is False
         assert "offline" in result.error.lower()
-        assert "8000" in result.error
+        assert "8001" in result.error
         assert result.source_category == SourceCategory.CONTROLLED_DEMO_STORE
 
 
@@ -72,7 +72,7 @@ def test_local_store_successful_mock_scrape(mock_get, adapter):
     mock_resp.json.return_value = sample_data
     mock_get.return_value = mock_resp
 
-    url = "http://127.0.0.1:8000/products/product-001"
+    url = "http://127.0.0.1:8001/products/product-001"
     result = adapter.scrape(url)
 
     assert result.success is True
@@ -101,7 +101,7 @@ def test_local_store_missing_image_returns_none(mock_get, adapter):
     }
     mock_get.return_value = mock_resp
 
-    result = adapter.scrape("http://127.0.0.1:8000/products/product-002")
+    result = adapter.scrape("http://127.0.0.1:8001/products/product-002")
     assert result.success is True
     assert result.current_price == 799.0
     assert result.image_url is None
@@ -140,7 +140,7 @@ def test_local_store_price_drop_simulation(mock_get, adapter):
 
     mock_get.side_effect = [resp1, resp2]
 
-    url = "http://127.0.0.1:8000/products/product-001"
+    url = "http://127.0.0.1:8001/products/product-001"
     res1 = adapter.scrape(url)
     assert res1.current_price == 1499.0
 

@@ -6,10 +6,8 @@ import pytest
 
 from scraper.exceptions import InvalidUrlError, UnsupportedWebsiteError
 from scraper.integrations import (
-    AmazonCreatorsAdapter,
     BigCommerceAdapter,
     CromaPolicyAdapter,
-    FlipkartAffiliateAdapter,
     GenericEcommerceAdapter,
     LocalStoreAdapter,
     OpenCartAdapter,
@@ -32,20 +30,19 @@ def test_factory_routes_open_prices():
 
 def test_factory_routes_local_store():
     """Verify localstore URLs map to LocalStoreAdapter."""
-    assert isinstance(default_factory.get_adapter("http://127.0.0.1:8000/products/product-001"), LocalStoreAdapter)
+    assert isinstance(default_factory.get_adapter("http://127.0.0.1:8001/products/product-001"), LocalStoreAdapter)
     assert isinstance(default_factory.get_adapter("localstore://product-001"), LocalStoreAdapter)
 
 
-def test_factory_routes_amazon():
-    """Verify Amazon India URLs map to AmazonCreatorsAdapter."""
-    assert isinstance(default_factory.get_adapter("https://www.amazon.in/dp/B08L5W4SW6"), AmazonCreatorsAdapter)
-    assert isinstance(default_factory.get_adapter("https://amzn.in/d/sample"), AmazonCreatorsAdapter)
-
-
-def test_factory_routes_flipkart():
-    """Verify Flipkart URLs map to FlipkartAffiliateAdapter."""
-    assert isinstance(default_factory.get_adapter("https://www.flipkart.com/product/p/itm1234567890123"), FlipkartAffiliateAdapter)
-    assert isinstance(default_factory.get_adapter("https://dl.flipkart.com/dl/item?pid=MOB1234567890123"), FlipkartAffiliateAdapter)
+def test_factory_rejects_amazon_and_flipkart():
+    """No API access, and their terms forbid scraping, so these are unsupported."""
+    for url in (
+        "https://www.amazon.in/dp/B08L5W4SW6",
+        "https://amzn.in/d/sample",
+        "https://www.flipkart.com/product/p/itm1234567890123",
+    ):
+        with pytest.raises(UnsupportedWebsiteError):
+            default_factory.get_adapter(url)
 
 
 def test_factory_routes_croma():

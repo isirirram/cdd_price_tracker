@@ -1,5 +1,6 @@
 import os
 import time
+from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 
@@ -10,6 +11,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pymongo.errors import ConnectionFailure
 
 from analytics import (
@@ -23,6 +25,7 @@ import chatbot
 from models import (
     BudgetSet,
     ChatRequest,
+    CompareLinkCreate,
     NotifyEmailUpdate,
     PricePoint,
     ProductCreate,
@@ -30,7 +33,15 @@ from models import (
     SaleEventCreate,
     SaleEventOut,
 )
-from product_service import create_product
+from product_service import (
+    COMPARE_PLATFORMS,
+    UnsupportedSiteError,
+    build_comparison,
+    compare_platform,
+    create_product,
+    group_key,
+    group_products,
+)
 from task_queue import queue_price_check
 
 
@@ -58,6 +69,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Smart Price Tracker API", lifespan=lifespan)
+
+# Product pictures for the built-in demo store. The demo store only runs
+# inside the worker container, so the browser loads its images from here.
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIR, check_dir=False), name="static")
 
 # Lets the React frontend (Vite dev = 5173, Docker/nginx = 3000) call this API.
 # Browsers treat localhost and 127.0.0.1 as different origins, so allow both.
@@ -88,6 +104,11 @@ async def validation_error_handler(request, exc):
     )
 
 
+@app.exception_handler(UnsupportedSiteError)
+async def unsupported_site_handler(request, exc):
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
 @app.exception_handler(ConnectionFailure)
 async def database_down_handler(request, exc):
     return JSONResponse(status_code=503, content={"detail": "Database unavailable"})
@@ -115,7 +136,10 @@ def serialize(doc: dict) -> ProductOut:
         current_price=doc.get("current_price"),
         alert_sent=doc.get("alert_sent", False),
         notify_email=doc.get("notify_email"),
+        telegram_chat_id=doc.get("telegram_chat_id"),
         image_url=doc.get("image_url"),
+        group_id=doc.get("group_id"),
+        platform=doc.get("platform"),
         created_at=doc["created_at"],
         last_checked_at=doc.get("last_checked_at"),
         last_error=doc.get("last_error"),
@@ -209,6 +233,51 @@ def delete_product(product_id: str, db=Depends(get_db)):
         raise HTTPException(status_code=404, detail="Product not found")
     db.price_history.delete_many({"product_id": oid})  # clean up its history too
     return {"message": "Product removed from tracking"}
+
+
+# ------------------- price comparison across Shopify / WooCommerce stores
+@app.get("/products/{product_id}/compare")
+def compare_prices(product_id: str, db=Depends(get_db)):
+    """The same product on every store it's tracked on, cheapest first."""
+    product = get_product_or_404(db, product_id)
+    return {
+        "product_id": product_id,
+        "group_id": group_key(product),
+        "product_name": product.get("product_name"),
+        **build_comparison(group_products(db, product)),
+    }
+
+
+@app.post("/products/{product_id}/compare", response_model=ProductOut, status_code=201)
+def add_compare_store(product_id: str, payload: CompareLinkCreate, db=Depends(get_db)):
+    """Track the same product on another Shopify or WooCommerce store."""
+    product = get_product_or_404(db, product_id)
+    url = str(payload.product_url)
+
+    if compare_platform(url) not in COMPARE_PLATFORMS:
+        raise HTTPException(
+            status_code=400,
+            detail="Price comparison only supports Shopify and WooCommerce product pages "
+            "(URLs like https://store.com/products/<name> or https://store.com/product/<name>).",
+        )
+
+    group = group_products(db, product)
+    if any(p["product_url"].rstrip("/") == url.rstrip("/") for p in group):
+        raise HTTPException(status_code=409, detail="This store link is already in the comparison")
+
+    doc = create_product(
+        db,
+        ProductCreate(
+            product_url=url,
+            target_price=product["target_price"],
+            user_id=product.get("user_id", "demo-user"),
+            notify_email=product.get("notify_email"),
+            telegram_chat_id=product.get("telegram_chat_id"),
+        ),
+        group_id=group_key(product),
+    )
+    queue_price_check(str(doc["_id"]))
+    return serialize(doc)
 
 
 # ------------------------------- feature 2: best time to buy (insights)

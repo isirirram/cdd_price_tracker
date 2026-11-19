@@ -11,6 +11,11 @@ class ProductCreate(BaseModel):
     user_id: str = "demo-user"
     # Where the price-drop email goes. Optional: falls back to ALERT_EMAIL_TO.
     notify_email: Optional[EmailStr] = None
+    # Telegram chat that gets the alert. Optional: falls back to TELEGRAM_CHAT_ID.
+    # A numeric chat id (groups are negative) or a public @channelname.
+    telegram_chat_id: Optional[str] = Field(
+        default=None, pattern=r"^(-?\d{3,20}|@[A-Za-z0-9_]{5,32})$"
+    )
 
 
 class ProductOut(BaseModel):
@@ -23,10 +28,19 @@ class ProductOut(BaseModel):
     current_price: Optional[float] = None
     alert_sent: bool = False
     notify_email: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
     image_url: Optional[str] = None
+    # Set when this product is "the same product on another store"
+    group_id: Optional[str] = None
+    platform: Optional[str] = None
     created_at: datetime
     last_checked_at: Optional[datetime] = None
     last_error: Optional[str] = None
+
+
+class CompareLinkCreate(BaseModel):
+    """Another store's page for the same product (Shopify or WooCommerce)."""
+    product_url: HttpUrl
 
 
 class NotifyEmailUpdate(BaseModel):

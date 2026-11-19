@@ -35,8 +35,7 @@ class BaseScraper(ABC):
         Extract the platform-specific unique product identifier:
         - Barcode for Open Prices
         - Product Slug / ID for LocalStore
-        - ASIN for Amazon
-        - FSN / Product ID for Flipkart
+        - Product handle / slug for Shopify and WooCommerce
         Returns None if extraction fails.
         """
         pass

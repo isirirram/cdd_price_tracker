@@ -27,9 +27,11 @@ celery_app.conf.update(
     result_serializer="json",
 )
 
-# Automatic checks. Default every 6 hours; for the expo demo set
-# CHECK_INTERVAL_SECONDS=60 in .env so price changes show up within a minute.
-CHECK_INTERVAL_SECONDS = float(os.getenv("CHECK_INTERVAL_SECONDS", "21600"))
+# Automatic checks. Default every 5 minutes, so an alert goes out within a few
+# minutes of a price drop. The scraper still obeys robots.txt / Crawl-delay and
+# spaces out requests to each store. For a live demo, 60 is fine.
+# Never below 30 s, so a typo can't make us hammer the stores.
+CHECK_INTERVAL_SECONDS = max(30.0, float(os.getenv("CHECK_INTERVAL_SECONDS", "300")))
 
 celery_app.conf.beat_schedule = {
     "check-all-products": {

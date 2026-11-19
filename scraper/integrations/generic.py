@@ -45,9 +45,10 @@ class GenericEcommerceAdapter(BaseScraper):
         "dummyjson.com",
         "myntra.com",
         "ajio.com",
-        "amazon.in",
-        "amazon.com",
-        "flipkart.com",
+        # Amazon / Flipkart: price data only through partner APIs we don't have
+        "amazon.",
+        "amzn.",
+        "flipkart.",
         "croma.com",
         "openfoodfacts.org",
     }
@@ -219,7 +220,7 @@ class GenericEcommerceAdapter(BaseScraper):
                 product_url=url,
                 source_category=SourceCategory.PUBLIC_STORE_API,
                 is_commercial_store=True,
-                error=f"Failed to extract product data: {str(e)}",
+                error=security.describe_error(e, "Failed to extract product data"),
                 cache_policy=self._get_cache_policy()
             )
 

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import pytest
 from bson import ObjectId
 
+import notifications
 import tasks
 from database import price_history_collection, products_collection
 from scraper.models import CachePolicy, ScraperResult, SourceCategory
@@ -12,7 +13,10 @@ from scraper.models import CachePolicy, ScraperResult, SourceCategory
 def clean_db(monkeypatch):
     products_collection.delete_many({})
     price_history_collection.delete_many({})
-    for var in ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "ALERT_EMAIL_TO"):
+    for var in (
+        "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "ALERT_EMAIL_TO",
+        "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
+    ):
         monkeypatch.delenv(var, raising=False)
     yield
 
@@ -90,12 +94,31 @@ def test_scrape_failure_is_recorded(monkeypatch):
 def test_alert_sent_once_when_target_reached(monkeypatch):
     pid = add_product(target=1000)
     sent = []
-    monkeypatch.setattr(tasks, "send_email_alert", lambda **k: sent.append(k["to_email"]))
+    monkeypatch.setattr(notifications, "send_email_alert", lambda **k: sent.append(k["to_email"]))
 
-    assert "emailed to buyer@example.com" in tasks.check_price(pid, simulated_price=900)
+    assert tasks.check_price(pid, simulated_price=900) == (
+        "Price drop alert sent via email to buyer@example.com"
+    )
     assert tasks.check_price(pid, simulated_price=850) == "Alert already sent"
     assert sent == ["buyer@example.com"]
     assert products_collection.find_one({"_id": ObjectId(pid)})["alert_sent"] is True
+
+
+def test_concurrent_check_does_not_send_duplicate(monkeypatch):
+    """Two checks read the product before either one marks the alert as sent.
+    Only the one that wins the atomic claim may send."""
+    pid = add_product(target=1000)
+    sent = []
+    monkeypatch.setattr(notifications, "send_email_alert", lambda **k: sent.append(1))
+
+    # Check B starts while check A is sending: by then A has already claimed it.
+    def send_and_race(**k):
+        sent.append(1)
+        assert tasks.check_price(pid, simulated_price=880) == "Alert already sent"
+
+    monkeypatch.setattr(notifications, "send_email_alert", send_and_race)
+    assert tasks.check_price(pid, simulated_price=900).startswith("Price drop alert sent")
+    assert sent == [1]
 
 
 def test_alert_rearms_when_price_goes_back_up(monkeypatch):
@@ -106,15 +129,41 @@ def test_alert_rearms_when_price_goes_back_up(monkeypatch):
 
 def test_no_recipient_does_not_crash():
     pid = add_product(target=1000, email=None)
-    assert tasks.check_price(pid, simulated_price=900) == "Target reached, but no email address is set"
+    result = tasks.check_price(pid, simulated_price=900)
+    assert result == "Target reached, but alert not sent: no email address is set"
     assert products_collection.find_one({"_id": ObjectId(pid)})["alert_sent"] is False
 
 
 def test_missing_smtp_config_does_not_crash():
     pid = add_product(target=1000)
-    assert tasks.check_price(pid, simulated_price=900) == "Target reached, but email is not configured"
-    # still False so the alert is retried once SMTP is configured
+    result = tasks.check_price(pid, simulated_price=900)
+    assert result == "Target reached, but alert not sent: email is not configured"
+    # back to False so the alert is retried once SMTP is configured
     assert products_collection.find_one({"_id": ObjectId(pid)})["alert_sent"] is False
+
+
+def test_telegram_and_email_both_sent(monkeypatch):
+    pid = add_product(target=1000)
+    products_collection.update_one(
+        {"_id": ObjectId(pid)}, {"$set": {"telegram_chat_id": "123456789"}}
+    )
+    calls = []
+    monkeypatch.setattr(notifications, "send_email_alert", lambda **k: calls.append("email"))
+    monkeypatch.setattr(
+        notifications, "send_telegram_alert", lambda **k: calls.append(("tg", k["chat_id"]))
+    )
+    result = tasks.check_price(pid, simulated_price=900)
+    assert result == "Price drop alert sent via email to buyer@example.com, Telegram"
+    assert calls == ["email", ("tg", "123456789")]
+
+
+def test_telegram_alone_is_enough(monkeypatch):
+    """Email not configured, Telegram works -> alert counts as sent."""
+    pid = add_product(target=1000)
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "555")
+    monkeypatch.setattr(notifications, "send_telegram_alert", lambda **k: None)
+    assert tasks.check_price(pid, simulated_price=900) == "Price drop alert sent via Telegram"
+    assert products_collection.find_one({"_id": ObjectId(pid)})["alert_sent"] is True
 
 
 def test_invalid_and_missing_ids():
@@ -155,7 +204,6 @@ def test_missing_image_does_not_wipe_saved_image(monkeypatch):
 def test_platform_site_is_shown_as_store_domain():
     assert tasks._website_name("shopify", "https://www.boat-lifestyle.com/products/x") == "boat-lifestyle.com"
     assert tasks._website_name("generic", "https://shop.example.in/item/1") == "shop.example.in"
-    assert tasks._website_name("amazon", "https://www.amazon.in/dp/B0CHX1W1XY") == "amazon"
     assert tasks._website_name("local_store", "http://127.0.0.1:8001/products/product-001") == "Demo Store"
 
 

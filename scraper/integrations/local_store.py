@@ -1,7 +1,7 @@
 """
 LocalStore Adapter - Slot 2 (Controlled Demonstration Storefront).
 
-Connects to the self-contained local demonstration server (127.0.0.1:8000).
+Connects to the self-contained local demonstration server (127.0.0.1:8001).
 Enables deterministic live price drop simulation and image extraction for project evaluation.
 """
 
@@ -118,7 +118,7 @@ class LocalStoreAdapter(BaseScraper):
                 is_commercial_store=False,
                 error=(
                     f"Local demonstration store is offline at {base_url}. "
-                    "Start it using: python scraper/demo_store/server.py --port 8000"
+                    "Start it using: python scraper/demo_store/server.py --port 8001"
                 ),
                 cache_policy=None,
                 image_url=None

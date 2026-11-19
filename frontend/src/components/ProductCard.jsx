@@ -1,4 +1,5 @@
 import { productStatus } from "../utils/productStatus";
+import ProductImage from "./ProductImage";
 
 const formatPrice = (price) => `₹${Number(price).toLocaleString("en-IN")}`;
 
@@ -7,9 +8,7 @@ function ProductCard({ product, onViewHistory, onDelete, onCheckNow, checking })
 
   return (
     <div className="product-card">
-      <div className="product-image">
-        <span style={{ fontSize: "55px" }}>🛍️</span>
-      </div>
+      <ProductImage product={product} size={55} />
 
       <div className="product-info">
         <p className="product-category">{product.site?.toUpperCase()}</p>
@@ -32,7 +31,8 @@ function ProductCard({ product, onViewHistory, onDelete, onCheckNow, checking })
         <p style={{ color: status.color, fontWeight: 600 }}>{status.text}</p>
 
         <p style={{ fontSize: "0.85em", color: "#777" }}>
-          Alerts to: {product.notify_email || "default address"}
+          Alerts to: {product.notify_email || "default email"}
+          {product.telegram_chat_id ? ` · Telegram ${product.telegram_chat_id}` : ""}
         </p>
 
         {product.last_checked_at && (

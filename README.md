@@ -1,6 +1,7 @@
-# Smart Price Tracker with Email Alerts
+# Smart Price Tracker with Alerts
 
-Track product prices, get an **email when a price drops to your target**, and see
+Track product prices, get an **email and/or Telegram message when a price drops to your
+target**, compare the same product across Shopify and WooCommerce stores, and see
 "best time to buy" insights, sale-event drop analysis and a budget planner.
 
 | Part | Tech | Folder |
@@ -8,44 +9,95 @@ Track product prices, get an **email when a price drops to your target**, and se
 | Frontend | React + Vite (served by nginx) | `frontend/` |
 | API | FastAPI + MongoDB | `backend/` |
 | Price checker | Celery worker + Celery Beat + Redis | `worker/` |
-| Price sources | Scraper adapters (demo store, Open Prices, Amazon/Flipkart APIs) | `scraper/` |
+| Price sources | Scraper adapters: demo store, Shopify, WooCommerce, BigCommerce, Wix, PrestaShop, OpenCart, Open Prices, any store with product data in its page | `scraper/` |
+| Alerts | Email (SMTP) + Telegram bot | `worker/notifications.py` |
 | AI assistant | LLM with tool calling (Groq / any OpenAI-compatible API) + offline fallback | `backend/chatbot.py` |
-| CI/CD | GitHub Actions (tests, lint, build, Docker build, push to GHCR) | `.github/workflows/` |
+| CI/CD | GitHub Actions: tests, lint, build, Docker build, then push to GHCR | `.github/workflows/ci.yml` |
 
 ## Run everything
 
 ```bash
-cp .env.example .env      # fill in SMTP_* to get real emails; CHECK_INTERVAL_SECONDS=60 for demos
+cp .env.example .env      # fill in SMTP_* and/or TELEGRAM_* to get real alerts
 docker compose up --build
 ```
 
 - Frontend: http://localhost:3000
 - API docs (Swagger): http://localhost:8000/docs
 
+Requires Docker Compose v2.24 or newer. Ports 3000, 8000, 27017 and 6379 must be free.
+
 ## Live demo of a price-drop alert
 
 1. In the frontend, add `http://127.0.0.1:8001/products/product-001` with target price `1200`
-   and your email. Within a few seconds it shows the demo store price (₹1,499).
+   and your email (and/or Telegram chat id). Within a few seconds it shows the demo store
+   price (₹1,499) and the product picture.
 2. Drop the price on the demo store (it lives inside the worker container):
    ```bash
    docker compose exec worker python demo_price.py product-001 999
    ```
-3. Click **Check Now** (or wait a few seconds) — the price becomes ₹999, the card shows
-   "Target reached · alert sent ✓", and the email arrives.
+3. Click **Check Now** (or wait a few seconds) - the price becomes ₹999, the card shows
+   "Target reached · alert sent ✓", and the email / Telegram message arrives.
+4. Raise the price above the target and drop it again to get a new alert: one alert per
+   price crossing, never duplicates.
 
-Optional: `docker compose exec backend python seed_demo.py` adds 3 demo products with
+Optional: `docker compose exec backend python seed_demo.py` adds 3 demo-store products with
 45 days of history so the insights, drop report and budget pages have data to show.
+
+## Alerts: email and Telegram
+
+Alerts are sent on every channel that is set up. A product can have its own email and
+Telegram chat id; otherwise `ALERT_EMAIL_TO` / `TELEGRAM_CHAT_ID` from `.env` are used.
+
+- **Email:** set `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`. For Gmail, turn on 2-Step
+  Verification and use an App Password.
+- **Telegram:** message [@BotFather](https://t.me/BotFather) → `/newbot` → put the token in
+  `TELEGRAM_BOT_TOKEN`. Send any message to your bot, open
+  `https://api.telegram.org/bot<TOKEN>/getUpdates`, and copy `"chat":{"id": ...}` into
+  `TELEGRAM_CHAT_ID` (or into the "Telegram chat ID" field when adding a product).
+
+**No duplicate alerts:** before sending, the worker *claims* the alert with one atomic
+MongoDB update (`alert_sent: false → true`). If two checks of the same product run at the
+same time (scheduled check + "Check Now"), only one wins the claim and sends. If every
+channel fails, the claim is released so the next check retries. When the price goes back
+above the target the alert re-arms.
+
+**Alerts within minutes:** Celery Beat re-checks every product every
+`CHECK_INTERVAL_SECONDS` (default 300 = 5 minutes, minimum 30; use 60 for a live demo).
+
+## Compare prices across stores (Shopify + WooCommerce)
+
+Open a product in **Price History** → **Compare Prices Across Stores** and paste the same
+product's page on another Shopify (`https://store.com/products/<name>`) or WooCommerce
+(`https://store.com/product/<name>`) store. Each store is tracked like a normal product
+(price, history, alerts), and the table shows every store's price, cheapest first, with
+how much you save.
+
+API: `GET /products/{id}/compare`, `POST /products/{id}/compare {"product_url": "..."}`.
+
+## Respecting the stores (robots.txt, rate limits, terms of service)
+
+- Every request to a store first checks that store's **robots.txt** (RFC 9309, including
+  `*` and `$` wildcards). Disallowed pages are never fetched and the product shows
+  "robots.txt on <site> does not allow automated access to this page". If robots.txt
+  can't be read (server error / unreachable) nothing is fetched.
+- `Crawl-delay` is honoured, and every store gets at least 2 seconds between our requests.
+- We identify ourselves honestly as `SmartPriceTracker/1.0` instead of pretending to be a
+  browser.
+- **Amazon, Flipkart and Croma are not supported.** Amazon and Flipkart only allow price
+  access through partner APIs we don't have, and Croma's terms forbid automated price
+  monitoring. Adding one of their links is rejected with an explanation.
+- Store APIs and public product data are preferred over HTML pages (Shopify
+  `/products/<handle>.js`, WooCommerce Store API, Schema.org product data).
 
 ## AI price assistant (💬 button, bottom-right)
 
-- **"Should I buy the laptop now?"** - explains the buy-now / wait insight, past sale drops and your target
+- **"Should I buy the headphones now?"** - explains the buy-now / wait insight, past sale drops and your target
 - **"What fits my budget?"** - best deals that fit in what's left of your monthly budget
 - **"Track http://127.0.0.1:8001/products/product-002 under 2000, email me@example.com"** - adds the product
 
 Set `LLM_API_KEY` in `.env` (free Groq key) for the AI mode: the LLM calls our own
 backend functions (tools) for every number, so it can't make up prices. Without a key,
 or if the internet is down, it automatically switches to the built-in offline assistant.
-Code: `backend/chatbot.py`, `frontend/src/components/ChatBot.jsx`.
 
 ## How a price check flows
 
@@ -53,361 +105,52 @@ Code: `backend/chatbot.py`, `frontend/src/components/ChatBot.jsx`.
 Frontend --POST /products--> FastAPI --saves--> MongoDB
                                |
                                +--"tasks.check_price"--> Redis --> Celery worker
-                                                                     | scraper adapter -> current price
+                                                                     | robots.txt check -> scraper adapter -> price
                                                                      | save price + history to MongoDB
-                                                                     | price <= target? -> send email
+                                                                     | price <= target? -> claim alert -> email + Telegram
 Celery Beat --every CHECK_INTERVAL_SECONDS--> "tasks.enqueue_all_products"
 ```
 
----
+## CI/CD
 
-# Smart Price Tracker – Scraper & Price Extraction Module
+One workflow, `.github/workflows/ci.yml`:
 
-## 1. Overview
+1. **CI** (every push and pull request to `main`): backend, scraper and worker tests;
+   frontend lint and build; `docker compose config` and `docker compose build`.
+2. **CD** (pushes to `main` only, and only after all CI jobs pass): builds and pushes the
+   backend, frontend and worker images to GHCR, tagged `latest` and with the commit SHA.
 
-The Scraper & Price Extraction module is responsible for identifying supported product sources, extracting product information and retrieving the latest available product prices.
+## Running the tests locally
 
-It accepts a product URL or barcode, identifies the corresponding source, extracts the product name and current price, and returns the information in a standardized format for the backend and price-monitoring worker.
-
-This module was developed as **Person 2's contribution** to the Smart Price Tracker with Automated Price Drop Alerts project.
-
-## 2. Objectives
-
-- Accept and validate product URLs and supported barcode inputs.
-- Identify the product source automatically.
-- Extract product names and current prices.
-- Support multiple source adapters through a common architecture.
-- Handle invalid URLs, unsupported websites, missing credentials and network errors.
-- Follow source-specific caching and data-retention policies.
-- Provide a standardized output for integration with Person 3's worker module.
-- Support independent testing of the scraper without requiring the complete application.
-
-## 3. Technologies Used
-
-| Technology | Purpose |
-|---|---|
-| Python | Main programming language |
-| Requests | HTTP requests and API communication |
-| Pydantic | Data validation and structured results |
-| Python-dotenv | Environment variable management |
-| Pytest | Automated testing |
-| Git & GitHub | Version control and collaboration |
-
-## 4. Project Structure
-
-```text
-cdd_price_tracker/
-│
-├── .env.example
-├── .gitignore
-│
-└── scraper/
-    ├── __init__.py
-    ├── requirements.txt
-    ├── models.py
-    ├── exceptions.py
-    ├── config.py
-    ├── base_scraper.py
-    ├── scraper_factory.py
-    ├── test_scraper.py
-    ├── README.md
-    │
-    ├── integrations/
-    │   ├── __init__.py
-    │   ├── open_prices.py
-    │   ├── local_store.py
-    │   ├── amazon.py
-    │   ├── flipkart.py
-    │   └── croma.py
-    │
-    ├── demo_store/
-    │   ├── __init__.py
-    │   └── server.py
-    │
-    └── tests/
-        ├── __init__.py
-        ├── test_models.py
-        ├── test_factory.py
-        ├── test_open_prices.py
-        ├── test_local_store.py
-        ├── test_amazon.py
-        ├── test_flipkart.py
-        ├── test_croma.py
-        │
-        └── benchmark/
-            ├── __init__.py
-            ├── test_dummyjson.py
-            └── fixtures/
+```bash
+pip install -r backend/requirements.txt -r scraper/requirements.txt -r worker/requirements.txt mongomock
+python -m pytest backend/tests
+python -m pytest scraper/tests
+python -m pytest worker/tests
+cd frontend && npm ci && npm run lint && npm run build
 ```
 
-## 5. Module Architecture
+## Running without Docker
 
-The scraper follows an object-oriented, factory-based architecture.
+Start MongoDB and Redis, copy `.env.example` to `.env` and set
+`MONGO_URI=mongodb://localhost:27017/price_tracker` and `REDIS_URL=redis://localhost:6379/0`, then:
 
-### BaseScraper
-
-Provides a common interface for all scraper adapters. It defines the methods required for URL validation, product identification and product extraction.
-
-### ScraperFactory
-
-Identifies the source from the supplied URL and selects the appropriate adapter. It also handles unsupported sources and errors.
-
-### Models
-
-The module uses Pydantic models to maintain a consistent structure for extracted product information.
-
-**ScraperResult** contains:
-
-- Success status
-- Product name
-- Current price
-- Currency
-- Website/source
-- Product URL
-- Source category
-- Commercial-store indicator
-- Timestamp
-- Error information
-- Cache policy
-- Attribution information
-
-**CachePolicy** defines source-specific price and metadata expiration periods and whether historical price storage is permitted.
-
-### Exceptions
-
-Custom exceptions are used to handle different failures, including:
-
-- Invalid URL
-- Unsupported website
-- Missing API credentials
-- Registration restrictions
-- Policy-restricted websites
-- Network timeout
-- Product not found
-
-## 6. Supported Integrations
-
-The module implements five adapter categories.
-
-### 1. Open Prices
-
-- Uses the Open Prices and Open Food Facts ecosystem.
-- Supports barcode-based product identification.
-- Retrieves available price observations.
-- Does not require API credentials.
-- Focuses on groceries and packaged consumer products.
-- Provides attribution and follows the applicable open-data licensing requirements.
-
-### 2. LocalStore
-
-- A controlled demonstration storefront developed for this project.
-- Runs locally using Python's built-in HTTP server.
-- Allows product information and prices to be retrieved.
-- Supports simulated price changes.
-- Used for end-to-end testing of the scraper.
-- Does not represent a commercial shopping platform.
-
-### 3. Amazon
-
-- Uses the Amazon Creators API integration structure.
-- Requires valid API credentials and an eligible Associates account.
-- Implements credential checks and response parsing.
-- Uses source-specific caching restrictions.
-- Historical price storage is disabled in the adapter.
-
-### 4. Flipkart
-
-- Uses the Flipkart Affiliate API integration structure.
-- Requires approved affiliate credentials.
-- Handles credential validation and API response parsing.
-- Historical price storage is disabled in the adapter.
-
-### 5. Croma
-
-- Implemented as a policy-restricted adapter.
-- Does not perform automated scraping.
-- Refuses unsupported extraction requests.
-- Does not send network requests.
-
-**Note:** Implementing five adapter categories does not mean five live commercial shopping websites are supported. Amazon and Flipkart require credentials, Open Prices is a price-observation data source, LocalStore is a demo storefront, and Croma refuses scraping.
-
-## 7. Local Demonstration Storefront
-
-A local storefront was created to test the complete scraper workflow independently.
-
-It runs on:
-
-```text
-http://127.0.0.1:8000
+```bash
+python scraper/demo_store/server.py --port 8001                                   # demo store
+cd backend && uvicorn main:app --port 8000                                        # API
+cd worker && celery -A celery_app.celery_app worker --loglevel=info               # worker
+cd worker && celery -A celery_app.celery_app beat --loglevel=info                 # scheduler
+cd frontend && npm run dev                                                        # http://localhost:5173
 ```
 
-Features include:
+## Module documentation
 
-- Product catalogue with sample products.
-- Product details and current prices.
-- Availability information.
-- Price update functionality.
-- Local HTTP endpoints for product retrieval and price updates.
+- [`backend/README.md`](backend/README.md) - API endpoints, data model, analytics features
+- [`scraper/README.md`](scraper/README.md) - adapters, data-retention policies, security
 
-The server is restricted to the localhost address and uses in-memory data.
+## Future work
 
-## 8. Installation and Setup
-
-### Step 1: Create a virtual environment
-
-```powershell
-python -m venv .venv
-```
-
-### Step 2: Activate the environment
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-### Step 3: Install dependencies
-
-```powershell
-pip install -r scraper/requirements.txt
-```
-
-### Step 4: Configure environment variables
-
-Copy `.env.example` to `.env` and provide the required credentials for integrations that need them.
-
-The LocalStore and Open Prices adapters do not require the Amazon or Flipkart credentials.
-
-## 9. Running the Scraper
-
-### Start the LocalStore server
-
-Open a terminal in the project root and execute:
-
-```powershell
-.\.venv\Scripts\python.exe scraper/demo_store/server.py --port 8000
-```
-
-Keep the server running.
-
-### Run the scraper
-
-Open another terminal and execute:
-
-```powershell
-.\.venv\Scripts\python.exe scraper/test_scraper.py "http://127.0.0.1:8000/products/product-001"
-```
-
-The scraper retrieves the product name, current price and other relevant information.
-
-### Simulate a price change
-
-Use the following command in the second terminal:
-
-```powershell
-Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/admin/products/product-001/price" -ContentType "application/json" -Body '{"price":999}'
-```
-
-This updates the demo product's price to ₹999.
-
-Run the scraper again:
-
-```powershell
-.\.venv\Scripts\python.exe scraper/test_scraper.py "http://127.0.0.1:8000/products/product-001"
-```
-
-The scraper retrieves the updated price.
-
-## 10. Automated Testing
-
-Pytest was used to test the scraper module.
-
-The test suite covers:
-
-- Pydantic model validation.
-- URL identification and factory routing.
-- Open Prices barcode parsing.
-- LocalStore product extraction and price updates.
-- Amazon credential checks and API response parsing.
-- Flipkart credential checks and API response parsing.
-- Croma policy restrictions.
-- Error handling and network timeout scenarios.
-- DummyJSON benchmark isolation.
-
-Run the complete test suite:
-
-```powershell
-.\.venv\Scripts\pytest.exe scraper/tests -v
-```
-
-### Test Results
-
-| Metric | Result |
-|---|---:|
-| Total tests | 39 |
-| Passed | 39 |
-| Failed | 0 |
-| Success rate | 100% |
-
-The implementation report recorded all 39 tests as passing.
-
-## 11. Integration with Person 3
-
-The scraper provides a public function that allows the worker module to retrieve product information.
-
-Example:
-
-```python
-from scraper import scrape_product
-
-result = scrape_product(product_url)
-
-if result.success:
-    print(result.product_name)
-    print(result.current_price)
-else:
-    print(result.error)
-```
-
-The returned result can be used by the worker to:
-
-1. Retrieve the latest available product price.
-2. Compare it with the user's target price.
-3. Trigger the appropriate alert workflow.
-4. Store price history only when the source's retention policy permits it.
-5. Respect the source-specific cache expiration rules.
-
-**Important:** Person 3 must enforce the returned cache and historical-storage policies before saving prices in the database.
-
-## 12. Limitations
-
-- Amazon requires eligible Associates API credentials for live access.
-- Flipkart requires approved affiliate credentials.
-- Open Prices is limited to products with available barcode-based observations.
-- LocalStore is only a controlled demonstration environment.
-- Croma does not support automated scraping through this adapter.
-- Amazon and Flipkart integrations were tested using mock API responses rather than live credentials.
-- The module does not independently schedule price checks or send notifications.
-
-## 13. Scope of Contribution
-
-The work completed under Person 2 includes:
-
-- Scraper architecture and configuration.
-- Product URL validation and source identification.
-- Five source adapters.
-- Product name and price extraction.
-- Error handling and cache policies.
-- Local demonstration storefront.
-- Standalone scraper testing tool.
-- Automated test suite.
-- Documentation and integration interface for Person 3.
-
-The module does not implement the backend database, scheduling system, notification services, frontend or DevOps pipeline, as these are assigned to other team members.
-
-## 14. Conclusion
-
-The Scraper & Price Extraction module provides a structured and reusable way to retrieve product information and current prices from supported sources.
-
-It was independently tested using automated tests and a controlled local storefront. The successful demonstration included retrieving a product's original price, updating the price and retrieving the updated value through the scraper.
-
-The module is prepared for integration with the worker and scheduler component of the Smart Price Tracker project.
+- **User accounts.** The app currently runs as a single user and opens straight on the
+  dashboard (every product belongs to `demo-user`). Next step: sign up / login with hashed
+  passwords and tokens, so each user only sees their own products, budget and alerts.
+- Price prediction with machine learning (out of scope in the problem statement).

@@ -46,8 +46,6 @@ scraper/
 │   ├── __init__.py
 │   ├── open_prices.py        # Slot 1: Open-Data Price Observation (Open Food Facts)
 │   ├── local_store.py        # Slot 2: Controlled Demonstration Storefront
-│   ├── amazon.py             # Slot 3: Credential-Gated Amazon Creators API
-│   ├── flipkart.py           # Slot 4: Credential-Gated Flipkart Affiliate API
 │   ├── croma.py              # Slot 5: Policy-Restricted Croma Adapter (Scrape Refusal)
 │   ├── shopify.py            # Slot 6: Shopify Storefront Ajax API (/products/{handle}.js)
 │   ├── woocommerce.py        # Slot 7: WooCommerce Public Store API (/wp-json/wc/store/v1)
@@ -59,7 +57,7 @@ scraper/
 │
 ├── demo_store/               # CONTROLLED DEMONSTRATION STOREFRONT SERVER
 │   ├── __init__.py
-│   └── server.py             # Self-contained HTTP server (127.0.0.1:8000)
+│   └── server.py             # Self-contained HTTP server (127.0.0.1:8001)
 │
 └── tests/                    # AUTOMATED PYTEST SUITE (108 TESTS)
     ├── __init__.py
@@ -68,8 +66,6 @@ scraper/
     ├── test_security.py      # SSRF validation, private IP blocking, redirect safety
     ├── test_open_prices.py   # Open Prices unit and mock tests
     ├── test_local_store.py   # LocalStore unit and price-drop simulation tests
-    ├── test_amazon.py        # Amazon Creators API contract tests (Mock fixtures)
-    ├── test_flipkart.py      # Flipkart Affiliate API contract tests (Mock fixtures)
     ├── test_croma.py         # Policy restriction error handling tests
     ├── test_shopify.py       # Shopify Ajax API unit, variant & minor-unit tests
     ├── test_woocommerce.py   # WooCommerce Store API & minor-unit conversion tests
@@ -115,9 +111,7 @@ All dependencies are pinned in `scraper/requirements.txt`:
 | Slot | Adapter | Source Category | Identifier | Endpoint / Mechanism | Historical Storage Permitted? | Cache TTL |
 | :---: | :--- | :--- | :--- | :--- | :---: | :---: |
 | **1** | `OpenPricesAdapter` | `OPEN_DATA_OBSERVATION` | Barcode (8–14 digits) | Open Food Facts API | **YES** (ODbL 1.0) | Price: 24h, Meta: 7d |
-| **2** | `LocalStoreAdapter` | `CONTROLLED_DEMO_STORE` | Product Slug/ID | Demo Server `127.0.0.1:8000` | **YES** (Controlled) | Price: 60s, Meta: 24h |
-| **3** | `AmazonCreatorsAdapter` | `CREDENTIAL_GATED` | ASIN (10 chars) | Amazon Creators API | **NO** (Strictly forbidden) | Price: 1h, Meta: 24h |
-| **4** | `FlipkartAffiliateAdapter` | `CREDENTIAL_GATED` | FSN / Product ID | Flipkart Affiliate API | **NO** (Contract gated) | Price: 24h, Meta: 24h |
+| **2** | `LocalStoreAdapter` | `CONTROLLED_DEMO_STORE` | Product Slug/ID | Demo Server `127.0.0.1:8001` | **YES** (Controlled) | Price: 60s, Meta: 24h |
 | **5** | `CromaPolicyAdapter` | `POLICY_RESTRICTED` | Product Code | Refusal (Zero network calls) | **N/A** (None) | None |
 | **6** | `ShopifyAdapter` | `PUBLIC_STORE_API` | Product Handle | `/products/{handle}.js` | **YES** (Public API) | Price: 1h, Meta: 24h |
 | **7** | `WooCommerceAdapter` | `PUBLIC_STORE_API` | Slug / Numeric ID | `/wp-json/wc/store/v1/products` | **YES** (Public API) | Price: 1h, Meta: 24h |
@@ -219,27 +213,27 @@ All web-facing adapters route requests through `scraper/security.py` to prevent 
 4. **Internal Domain Suffix Rejection:** Blocks `.local`, `.internal`, `.lan`, `.localhost`, and `.home.arpa`.
 5. **Safe Redirect Validation:** Inspects every HTTP redirect (301, 302, 307, 308) and validates that the target URL does not redirect into a private network.
 6. **Request Timeouts:** Mandatory 10-second timeout on all network calls.
-7. *Controlled Exception:* The `LocalStoreAdapter` explicitly targets `127.0.0.1:8000` solely for controlled local development and simulation.
+7. *Controlled Exception:* The `LocalStoreAdapter` explicitly targets `127.0.0.1:8001` solely for controlled local development and simulation.
 
 ---
 
 ## 7. Running the Local Demonstration Storefront
 
-Person 2 provides a self-contained local storefront server to enable live demonstrations of automated price tracking and real-time Telegram alerts.
+Person 2 provides a self-contained local storefront server to enable live demonstrations of automated price tracking and real-time email / Telegram alerts.
 
 ### Start the Local Server
 ```powershell
-.\.venv\Scripts\python.exe scraper/demo_store/server.py --port 8000
+.\.venv\Scripts\python.exe scraper/demo_store/server.py --port 8001
 ```
 
 ### Endpoints
-* `GET http://127.0.0.1:8000/products/product-001` — Returns product JSON.
-* `POST http://127.0.0.1:8000/admin/products/product-001/price` — Updates price dynamically.
+* `GET http://127.0.0.1:8001/products/product-001` — Returns product JSON.
+* `POST http://127.0.0.1:8001/admin/products/product-001/price` — Updates price dynamically.
 
 **Live Price Drop Simulation Command:**
 ```powershell
 # Lower price from ₹1,499 to ₹999
-Invoke-RestMethod -Uri "http://127.0.0.1:8000/admin/products/product-001/price" -Method Post -Body '{"price": 999.0}' -ContentType "application/json"
+Invoke-RestMethod -Uri "http://127.0.0.1:8001/admin/products/product-001/price" -Method Post -Body '{"price": 999.0}' -ContentType "application/json"
 ```
 
 ---
@@ -265,10 +259,7 @@ You can test any adapter directly from the command line without running MongoDB 
 .\.venv\Scripts\python.exe scraper/test_scraper.py "barcode:8901030825347"
 
 # Direct argument mode: Local demonstration store
-.\.venv\Scripts\python.exe scraper/test_scraper.py "http://127.0.0.1:8000/products/product-001"
-
-# Direct argument mode: Amazon India (shows credential-gated status)
-.\.venv\Scripts\python.exe scraper/test_scraper.py "https://www.amazon.in/dp/B08L5W4SW6"
+.\.venv\Scripts\python.exe scraper/test_scraper.py "http://127.0.0.1:8001/products/product-001"
 
 # Direct argument mode: Croma (shows policy-restricted refusal)
 .\.venv\Scripts\python.exe scraper/test_scraper.py "https://www.croma.com/sample/p/123456"
@@ -347,7 +338,7 @@ if result.cache_policy and result.cache_policy.allow_historical_storage:
         "checked_at": result.checked_at
     })
 else:
-    # PROHIBITED: Do NOT insert into price_history (e.g. Amazon / Flipkart licenses)
+    # PROHIBITED: Do NOT insert into price_history (sources whose licence forbids it)
     logger.info(f"Skipping price history insert for {result.site}: license forbids permanent retention.")
 
 # 3. Product Collection Update with Cache Expiration TTL and Product Image
@@ -372,6 +363,6 @@ db.products.update_one({"_id": product.id}, {"$set": update_data})
 * **WooCommerce Stores:** Sourced via the public WooCommerce Store API (`/wp-json/wc/store/v1/`). Stores restricting the API return structured error results.
 * **BigCommerce, Wix, PrestaShop, OpenCart:** Sourced via publicly accessible storefront structured data (Schema.org JSON-LD microdata). Private/B2B/password-protected stores return authentication-required errors.
 * **Open Prices / Open Food Facts:** Data licensed under the Open Database License (ODbL v1.0). Applications displaying this data must credit Open Food Facts / Open Prices.
-* **Amazon Creators API:** Subject to the Amazon Associates Operating Agreement. Maximum 1-hour price cache; permanent historical archive prohibited.
-* **Flipkart Affiliate API:** Subject to Flipkart Affiliate Agreement.
 * **Croma:** Terms of Use (Section 12) strictly prohibit automated scraping. Adapter complies by refusing requests.
+* **Amazon / Flipkart:** Not supported. They only allow price access through partner APIs (Amazon Creators API, Flipkart Affiliate API) that need approved accounts, and their terms forbid scraping. The adapters were removed and their URLs are rejected.
+* **robots.txt:** Every storefront request goes through `security.safe_get`, which checks the site's robots.txt first (`scraper/robots.py`, RFC 9309 with wildcards), honours `Crawl-delay`, and spaces requests to the same site by at least 2 seconds.

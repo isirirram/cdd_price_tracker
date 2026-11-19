@@ -131,3 +131,16 @@ export function sendChatMessage(message, history = []) {
 export function getChatStatus() {
   return apiRequest("/chat/status");
 }
+
+// PRICE COMPARISON (same product on other Shopify / WooCommerce stores)
+
+export function getComparison(id) {
+  return apiRequest(`/products/${id}/compare`);
+}
+
+export function addCompareStore(id, productUrl) {
+  return apiRequest(`/products/${id}/compare`, {
+    method: "POST",
+    body: JSON.stringify({ product_url: productUrl }),
+  });
+}
