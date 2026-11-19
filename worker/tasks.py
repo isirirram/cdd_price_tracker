@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -8,9 +9,34 @@ from database import price_history_collection, products_collection
 from notifications import EmailNotConfigured, resolve_recipient, send_email_alert
 from scraper_adapter import get_scraper_result
 
+PLACEHOLDER_NAME = "Pending first price check"
+
+# These scraper "site" values are the platform the store runs on, not the
+# store itself (e.g. "shopify"), so for them we show the store's domain.
+PLATFORM_SITES = {
+    "generic", "shopify", "woocommerce", "bigcommerce",
+    "wix", "prestashop", "opencart",
+}
+
+FRIENDLY_SITE_NAMES = {
+    "local_store": "Demo Store",
+    "open_prices": "Open Prices",
+}
+
 
 def _now():
     return datetime.now(timezone.utc)
+
+
+def _website_name(scraped_site, product_url):
+    """Turn the scraper's site value into a name the UI can show."""
+    site = (scraped_site or "").strip().lower()
+    if site in FRIENDLY_SITE_NAMES:
+        return FRIENDLY_SITE_NAMES[site]
+    if site and site not in PLATFORM_SITES:
+        return site  # amazon, flipkart, croma, or a domain from the generic scraper
+    host = (urlparse(product_url).hostname or "").lower()
+    return host.removeprefix("www.") or "other"
 
 
 def _record_error(oid, message):
@@ -20,6 +46,7 @@ def _record_error(oid, message):
         {"_id": oid},
         {"$set": {"last_error": message, "last_checked_at": _now()}},
     )
+
 
 @celery_app.task(name="tasks.check_price")
 def check_price(product_id, simulated_price=None):
@@ -32,11 +59,14 @@ def check_price(product_id, simulated_price=None):
     if not product:
         return "Product not found"
 
-    product_name = product["product_name"]
+    product_name = product.get("product_name") or PLACEHOLDER_NAME
     product_url = product["product_url"]
     target_price = float(product["target_price"])
 
-    # 1. Get the current price (and whether we may store it as history)
+    # Everything we learn from this check goes into ONE $set at the end
+    updates = {}
+
+    # 1. Get the current price and the scraped metadata
     if simulated_price is not None:
         current_price = float(simulated_price)
         allow_history = False
@@ -51,26 +81,24 @@ def check_price(product_id, simulated_price=None):
         current_price = float(result.current_price)
         checked_at = result.checked_at
 
-        # Replace the "Pending first price check" placeholder with the real name
-        if result.product_name and result.product_name != product_name:
-            product_name = result.product_name
-            products_collection.update_one(
-                {"_id": oid}, {"$set": {"product_name": product_name}}
-            )
-
-        # Save the product image (scraper branch adds image_url to ScraperResult)
-        image_url = getattr(result, "image_url", None)
-        if image_url and image_url != product.get("image_url"):
-            products_collection.update_one(
-                {"_id": oid}, {"$set": {"image_url": image_url}}
-            )
-
         policy = result.cache_policy
         if policy.price_ttl_seconds <= 0 or policy.metadata_ttl_seconds <= 0:
             _record_error(oid, "Scraper returned an invalid cache policy")
             return "Invalid cache policy"
-
         allow_history = policy.allow_historical_storage
+
+        # Scraped metadata. Only overwrite with real values, never with empty
+        # ones, so a later scrape that misses the image doesn't wipe it.
+        scraped_name = (result.product_name or "").strip()
+        if scraped_name:
+            product_name = scraped_name
+            updates["product_name"] = scraped_name
+
+        image_url = getattr(result, "image_url", None)
+        if image_url:
+            updates["image_url"] = image_url
+
+        updates["site"] = _website_name(result.site, product_url)
 
     if current_price <= 0:
         _record_error(oid, "Scraper returned a non-positive price")
@@ -82,17 +110,15 @@ def check_price(product_id, simulated_price=None):
             {"product_id": oid, "price": current_price, "checked_at": checked_at}
         )
 
-    # 3. Update current price and clear any previous error
-    products_collection.update_one(
-        {"_id": oid},
+    # 3. Update the existing product document in one write
+    updates.update(
         {
-            "$set": {
-                "current_price": current_price,
-                "last_checked_at": checked_at,
-                "last_error": None,
-            }
-        },
+            "current_price": current_price,
+            "last_checked_at": checked_at,
+            "last_error": None,
+        }
     )
+    products_collection.update_one({"_id": oid}, {"$set": updates})
 
     # 4. Alert logic: send once when price first reaches the target,
     #    re-arm when it goes back above the target.

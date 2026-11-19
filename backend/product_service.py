@@ -7,12 +7,17 @@ from models import ProductCreate
 
 
 def detect_site(url: str) -> str:
-    host = urlparse(url).hostname or ""
+    """First guess at the website name; the worker replaces it after scraping."""
+    host = (urlparse(url).hostname or "").lower()
     if "amazon" in host:
         return "amazon"
     if "flipkart" in host:
         return "flipkart"
-    return "other"
+    if "croma" in host:
+        return "croma"
+    if host in ("127.0.0.1", "localhost"):
+        return "Demo Store"
+    return host.removeprefix("www.") or "other"
 
 
 def create_product(db, payload: ProductCreate) -> dict:
