@@ -275,3 +275,21 @@ def test_compare_duplicate_link_rejected(client):
 
 def test_compare_missing_product(client):
     assert client.get(f"/products/{MISSING_ID}/compare").status_code == 404
+
+
+def test_old_unsupported_products_removed_on_startup(db):
+    from database import remove_unsupported_products
+
+    now = datetime.now(timezone.utc)
+    old = db.products.insert_one(
+        {"product_url": "https://www.amazon.in/dp/X", "site": "amazon", "created_at": now}
+    ).inserted_id
+    keep = db.products.insert_one(
+        {"product_url": "https://shop.example.com/products/x", "site": "x", "created_at": now}
+    ).inserted_id
+    db.price_history.insert_one({"product_id": old, "price": 1.0, "checked_at": now})
+
+    assert remove_unsupported_products(db) == 1
+    assert db.products.find_one({"_id": old}) is None
+    assert db.products.find_one({"_id": keep}) is not None
+    assert db.price_history.count_documents({}) == 0

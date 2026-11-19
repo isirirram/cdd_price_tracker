@@ -133,6 +133,24 @@ def seed_sale_events(db: Database) -> None:
         )
 
 
+def remove_unsupported_products(db: Database) -> int:
+    """Delete products from sites we no longer support (Amazon, Flipkart,
+    Croma), plus their price history. They were added before these sites were
+    dropped and can never be price-checked. Returns how many were removed."""
+    from product_service import unsupported_site  # avoid a circular import
+
+    ids = [
+        p["_id"]
+        for p in db.products.find({}, {"product_url": 1})
+        if unsupported_site(p.get("product_url", ""))
+    ]
+    if ids:
+        db.price_history.delete_many({"product_id": {"$in": ids}})
+        db.products.delete_many({"_id": {"$in": ids}})
+        print(f"Removed {len(ids)} product(s) from unsupported sites (Amazon/Flipkart/Croma).")
+    return len(ids)
+
+
 def init_db(db: Database) -> None:
     """Create all collections (with schema validation), indexes and seed data.
     Safe to run on every startup."""
@@ -151,3 +169,4 @@ def init_db(db: Database) -> None:
     db.sale_events.create_index([("start_date", ASCENDING)])
 
     seed_sale_events(db)
+    remove_unsupported_products(db)

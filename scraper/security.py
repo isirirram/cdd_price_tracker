@@ -43,23 +43,48 @@ BLOCKED_SUFFIXES = (
 )
 
 
+# IPv6 addresses that carry an IPv4 address inside them. On IPv6-only networks
+# (many mobile hotspots, e.g. Jio) DNS64 answers with NAT64 addresses like
+# 64:ff9b::17e3:2620 (= 23.227.38.32). Python marks that whole range as
+# "reserved", so we check the IPv4 address inside instead. That also stops
+# someone hiding a private IPv4 address (e.g. 64:ff9b::7f00:1 = 127.0.0.1).
+NAT64_WELL_KNOWN = ipaddress.ip_network("64:ff9b::/96")
+
+
+def _embedded_ipv4(ip):
+    if ip.version != 6:
+        return None
+    if ip.ipv4_mapped:                       # ::ffff:a.b.c.d
+        return ip.ipv4_mapped
+    if ip in NAT64_WELL_KNOWN:               # 64:ff9b::a.b.c.d
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    return None
+
+
 def is_ip_private_or_restricted(ip_str: str) -> bool:
     """
     Check if an IPv4 or IPv6 string is private, loopback, link-local,
     reserved, or otherwise internal/non-routable on the public internet.
+    IPv6 addresses that wrap an IPv4 address (NAT64, IPv4-mapped) are judged
+    by the IPv4 address inside them.
     """
     try:
-        ip = ipaddress.ip_address(ip_str)
-        return (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_reserved
-            or ip.is_multicast
-            or ip.is_unspecified
-        )
+        ip = ipaddress.ip_address(ip_str.split("%", 1)[0])
     except ValueError:
         return True  # Malformed IP strings are treated as restricted for safety
+
+    inner = _embedded_ipv4(ip)
+    if inner is not None:
+        ip = inner
+
+    return (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    )
 
 
 def validate_safe_url(url: str, allow_local: bool = False) -> str:
