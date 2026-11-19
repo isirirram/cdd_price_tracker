@@ -149,3 +149,40 @@ def test_find_product_in_json_ld_graph_support():
     prod = find_product_in_json_ld(data)
     assert prod is not None
     assert prod["name"] == "Graph Product"
+
+
+# ---------------------------------------------- NAT64 / IPv6-only networks
+from unittest.mock import patch as _patch
+
+from scraper.security import is_ip_private_or_restricted, validate_safe_url
+
+
+def test_nat64_public_address_is_allowed():
+    # boat-lifestyle.com seen through DNS64 on an IPv6-only hotspot
+    assert is_ip_private_or_restricted("64:ff9b::17e3:2620") is False   # 23.227.38.32
+    assert is_ip_private_or_restricted("64:ff9b::8.8.8.8") is False
+
+
+def test_nat64_cannot_hide_private_addresses():
+    assert is_ip_private_or_restricted("64:ff9b::7f00:1") is True       # 127.0.0.1
+    assert is_ip_private_or_restricted("64:ff9b::a00:1") is True        # 10.0.0.1
+    assert is_ip_private_or_restricted("64:ff9b::c0a8:101") is True     # 192.168.1.1
+    assert is_ip_private_or_restricted("64:ff9b::a9fe:a9fe") is True    # 169.254.169.254
+
+
+def test_ipv4_mapped_addresses():
+    assert is_ip_private_or_restricted("::ffff:23.227.38.32") is False
+    assert is_ip_private_or_restricted("::ffff:127.0.0.1") is True
+
+
+def test_other_reserved_ipv6_still_blocked():
+    assert is_ip_private_or_restricted("::1") is True
+    assert is_ip_private_or_restricted("fe80::1") is True
+    assert is_ip_private_or_restricted("fd00::1") is True
+
+
+def test_store_resolving_to_nat64_passes_validation():
+    fake_dns = [(10, 1, 6, "", ("64:ff9b::17e3:2620", 0, 0, 0))]
+    with _patch("socket.getaddrinfo", return_value=fake_dns):
+        url = "https://www.boat-lifestyle.com/products/airdopes-141"
+        assert validate_safe_url(url) == url
