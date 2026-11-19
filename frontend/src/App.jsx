@@ -1,16 +1,15 @@
 import { useState } from "react";
 
-import Login from "./components/login";
-import Signup from "./components/Signup";
 import Dashboard from "./components/Dashboard";
 import ProductList from "./components/ProductList";
 import PriceHistory from "./components/PriceHistory";
-import Profile from "./components/Profile";
 import BudgetTracker from "./components/BudgetTracker";
 import ChatBot from "./components/ChatBot";
 
+// Single-user app: it opens straight on the dashboard.
+// User accounts (sign up / login) are planned future work.
 function App() {
-  const [currentPage, setCurrentPage] = useState("login");
+  const [currentPage, setCurrentPage] = useState("dashboard");
   // Lets "View Price History" on a product open that product directly
   const [selectedProductId, setSelectedProductId] = useState(null);
 
@@ -21,10 +20,6 @@ function App() {
 
   return (
     <>
-      {currentPage === "login" && <Login onNavigate={navigate} />}
-
-      {currentPage === "signup" && <Signup onNavigate={navigate} />}
-
       {currentPage === "dashboard" && <Dashboard onNavigate={navigate} />}
 
       {currentPage === "products" && <ProductList onNavigate={navigate} />}
@@ -38,10 +33,8 @@ function App() {
 
       {currentPage === "budget" && <BudgetTracker onNavigate={navigate} />}
 
-      {currentPage === "profile" && <Profile onNavigate={navigate} />}
-
-      {/* AI assistant on every page after login */}
-      {currentPage !== "login" && currentPage !== "signup" && <ChatBot />}
+      {/* AI assistant on every page */}
+      <ChatBot />
     </>
   );
 }

@@ -239,122 +239,6 @@ select:focus {
 }
 
 /* ==============================
-   LOGIN & SIGNUP
-================================ */
-
-.login-page {
-  min-height: 100vh;
-  background-color: #F5F5DC;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 25px;
-}
-
-.login-card {
-  background-color: #FFFFFF;
-  width: 100%;
-  max-width: 520px;
-  padding: 40px;
-  border-radius: 16px;
-  box-shadow: 0 5px 25px rgba(160, 82, 45, 0.15);
-  text-align: center;
-}
-
-.login-icon {
-  width: 64px;
-  height: 64px;
-  background-color: #F4A460;
-  border-radius: 50%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  margin: 0 auto 20px;
-  font-size: 28px;
-}
-
-.login-card h1 {
-  margin-bottom: 15px;
-}
-
-.login-card form {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-  margin-top: 25px;
-}
-
-.login-card input {
-  width: 100%;
-  padding: 14px;
-}
-
-.login-button {
-  width: 100%;
-  margin-top: 10px;
-}
-
-.forgot-password {
-  text-align: right;
-  color: #A0522D;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.login-divider {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  margin: 22px 0;
-}
-
-.login-divider span {
-  flex: 1;
-  height: 1px;
-  background-color: #D8B9A4;
-}
-
-.google-button {
-  width: 100%;
-  background-color: #F4A460;
-  color: #333333;
-}
-
-.signup-text {
-  margin-top: 22px;
-}
-
-.signup-text span {
-  color: #E35336;
-  font-weight: bold;
-  cursor: pointer;
-}
-
-/* ==============================
-   PROFILE PAGE
-================================ */
-
-.profile-card {
-  margin: 25px auto;
-  text-align: left;
-}
-
-.profile-card .login-icon,
-.profile-card h2 {
-  text-align: center;
-}
-
-.profile-card form label {
-  text-align: left;
-  color: #A0522D;
-  font-weight: 600;
-}
-
-.profile-card .google-button {
-  margin-top: 15px;
-}
-
-/* ==============================
    PRICE HISTORY
 ================================ */
 
@@ -459,10 +343,6 @@ select:focus {
     flex-direction: column;
     align-items: flex-start;
     gap: 15px;
-  }
-
-  .login-card {
-    padding: 25px;
   }
 }
 

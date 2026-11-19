@@ -147,3 +147,10 @@ cd frontend && npm run dev                                                      
 
 - [`backend/README.md`](backend/README.md) - API endpoints, data model, analytics features
 - [`scraper/README.md`](scraper/README.md) - adapters, data-retention policies, security
+
+## Future work
+
+- **User accounts.** The app currently runs as a single user and opens straight on the
+  dashboard (every product belongs to `demo-user`). Next step: sign up / login with hashed
+  passwords and tokens, so each user only sees their own products, budget and alerts.
+- Price prediction with machine learning (out of scope in the problem statement).
