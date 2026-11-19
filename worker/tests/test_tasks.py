@@ -120,3 +120,59 @@ def test_missing_smtp_config_does_not_crash():
 def test_invalid_and_missing_ids():
     assert tasks.check_price("not-an-id") == "Invalid product id"
     assert tasks.check_price("507f1f77bcf86cd799439011") == "Product not found"
+
+
+def test_scraped_metadata_is_saved_on_product(monkeypatch):
+    pid = add_product(target=1000)
+    result = fake_result(1499)
+    result.image_url = "https://cdn.example.com/headphones.jpg"
+    monkeypatch.setattr(tasks, "get_scraper_result", lambda url: result)
+
+    tasks.check_price(pid)
+
+    doc = products_collection.find_one({"_id": ObjectId(pid)})
+    assert doc["product_name"] == "Demo Headphones"
+    assert doc["current_price"] == 1499
+    assert doc["image_url"] == "https://cdn.example.com/headphones.jpg"
+    assert doc["site"] == "Demo Store"
+    assert doc["last_error"] is None
+    assert doc["last_checked_at"] is not None
+
+
+def test_missing_image_does_not_wipe_saved_image(monkeypatch):
+    pid = add_product(target=1000)
+    products_collection.update_one(
+        {"_id": ObjectId(pid)}, {"$set": {"image_url": "https://cdn.example.com/old.jpg"}}
+    )
+    monkeypatch.setattr(tasks, "get_scraper_result", lambda url: fake_result(1499))
+
+    tasks.check_price(pid)
+
+    doc = products_collection.find_one({"_id": ObjectId(pid)})
+    assert doc["image_url"] == "https://cdn.example.com/old.jpg"
+
+
+def test_platform_site_is_shown_as_store_domain():
+    assert tasks._website_name("shopify", "https://www.boat-lifestyle.com/products/x") == "boat-lifestyle.com"
+    assert tasks._website_name("generic", "https://shop.example.in/item/1") == "shop.example.in"
+    assert tasks._website_name("amazon", "https://www.amazon.in/dp/B0CHX1W1XY") == "amazon"
+    assert tasks._website_name("local_store", "http://127.0.0.1:8001/products/product-001") == "Demo Store"
+
+
+def test_failed_scrape_keeps_old_details_and_saves_error(monkeypatch):
+    pid = add_product(target=1000)
+    products_collection.update_one(
+        {"_id": ObjectId(pid)},
+        {"$set": {"current_price": 1200.0, "image_url": "https://cdn.example.com/a.jpg"}},
+    )
+
+    def boom(url):
+        raise RuntimeError("Scraping failed: blocked")
+
+    monkeypatch.setattr(tasks, "get_scraper_result", boom)
+    assert tasks.check_price(pid).startswith("Price check failed")
+
+    doc = products_collection.find_one({"_id": ObjectId(pid)})
+    assert doc["current_price"] == 1200.0
+    assert doc["image_url"] == "https://cdn.example.com/a.jpg"
+    assert doc["last_error"] == "Scraping failed: blocked"
