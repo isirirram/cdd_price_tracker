@@ -1,11 +1,14 @@
-fastapi
-uvicorn
-pymongo
-pydantic
-python-dotenv
-celery
-redis
-pytest
-httpx
-mongomock
-email-validator
+# Exact versions, so the Docker image builds the same on every machine.
+# These are the versions the test suite passes with.
+fastapi==0.165.0
+uvicorn==0.54.0
+pymongo==4.20.0
+pydantic==2.14.3
+python-dotenv==1.2.4
+celery==5.7.0
+redis==8.1.0
+email-validator==2.4.0
+# tests only
+pytest==9.2.0
+httpx==0.28.1
+mongomock==4.3.0

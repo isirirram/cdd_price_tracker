@@ -1,26 +1,37 @@
+# Smart Price Tracker - the whole system with one command:
+#   docker compose up --build
+#
+# All images are built locally from this repo. CI publishes the same images to
+# GitHub Container Registry (ghcr.io/isirirram/smart-price-tracker-*).
+
+x-app-env: &app-env
+  MONGO_URI: mongodb://mongo:27017/price_tracker
+  REDIS_URL: redis://redis:6379/0
+
+x-env-file: &env-file
+  - path: .env
+    required: false
 
 services:
 
-  # 1. MongoDB database
+  # 1. MongoDB database (only reachable from the other containers)
   mongo:
     image: mongo:7
     container_name: price_tracker_mongo
-    ports:
-      - "27017:27017"
+    restart: unless-stopped
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # 2. Redis message broker
+  # 2. Redis message broker (only reachable from the other containers)
   redis:
     image: redis:7-alpine
     container_name: price_tracker_redis
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -33,22 +44,25 @@ services:
       context: .
       dockerfile: Dockerfile.backend
     container_name: price_tracker_backend
+    restart: unless-stopped
     ports:
       - "8000:8000"
-    env_file:
-      - path: .env
-        required: false
+    env_file: *env-file
     environment:
-      MONGO_URI: mongodb://mongo:27017/price_tracker
-      # lets the API queue an immediate price check on the worker
-      REDIS_URL: redis://redis:6379/0
+      <<: *app-env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
     depends_on:
       mongo:
         condition: service_healthy
       redis:
         condition: service_healthy
 
-  # 4. React frontend
+  # 4. React frontend (served by nginx)
   frontend:
     build:
       context: .
@@ -56,28 +70,27 @@ services:
       args:
         VITE_API_URL: http://localhost:8000
     container_name: price_tracker_frontend
+    restart: unless-stopped
     ports:
       - "3000:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
-  # 5. Celery worker
+  # 5. Celery worker (also runs the demo store on 127.0.0.1:8001 inside the container)
   worker:
     build:
       context: .
       dockerfile: Dockerfile.worker
     container_name: price_tracker_worker
-    # Demo store runs inside the worker container on 127.0.0.1:8001
-    # (it is only allowed to bind to 127.0.0.1, and 8000 is the backend's port)
+    restart: unless-stopped
+    # The demo store may only bind to 127.0.0.1, and 8000 is the backend's port
     command: >
       sh -c "python /app/scraper/demo_store/server.py --port 8001 &
              celery -A celery_app.celery_app worker --loglevel=info"
-    env_file:
-      - path: .env
-        required: false
+    env_file: *env-file
     environment:
-      MONGO_URI: mongodb://mongo:27017/price_tracker
-      REDIS_URL: redis://redis:6379/0
+      <<: *app-env
       LOCAL_STORE_URL: http://127.0.0.1:8001
     depends_on:
       mongo:
@@ -85,22 +98,20 @@ services:
       redis:
         condition: service_healthy
 
-  # 6. Celery Beat scheduler
+  # 6. Celery Beat scheduler (same image as the worker)
   celery-beat:
     build:
       context: .
       dockerfile: Dockerfile.worker
     container_name: price_tracker_beat
-    command: celery -A celery_app.celery_app beat --loglevel=info
-    env_file:
-      - path: .env
-        required: false
+    restart: unless-stopped
+    command: celery -A celery_app.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
+    env_file: *env-file
     environment:
-      MONGO_URI: mongodb://mongo:27017/price_tracker
-      REDIS_URL: redis://redis:6379/0
+      <<: *app-env
     depends_on:
-      mongo:
-        condition: service_healthy
+      worker:
+        condition: service_started
       redis:
         condition: service_healthy
 
