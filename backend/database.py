@@ -107,7 +107,9 @@ def get_client() -> MongoClient:
             "MONGO_URI is not set. Create backend/.env with "
             "MONGO_URI=mongodb://localhost:27017/price_tracker"
         )
-    return MongoClient(uri, serverSelectionTimeoutMS=5000)
+    # tz_aware: dates come back marked as UTC, so the API sends "...+00:00"
+    # and browsers show them in the local time zone (IST) instead of as UTC.
+    return MongoClient(uri, serverSelectionTimeoutMS=5000, tz_aware=True)
 
 
 def get_db() -> Database:

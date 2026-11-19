@@ -15,7 +15,7 @@ MISSING_ID = "507f1f77bcf86cd799439011"
 
 @pytest.fixture
 def db():
-    return mongomock.MongoClient()["test_db"]
+    return mongomock.MongoClient(tz_aware=True)["test_db"]
 
 
 @pytest.fixture

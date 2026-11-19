@@ -15,7 +15,7 @@ DEMO_URL = "http://127.0.0.1:8001/products/product-001"
 
 @pytest.fixture
 def db():
-    return mongomock.MongoClient()["test_db"]
+    return mongomock.MongoClient(tz_aware=True)["test_db"]
 
 
 @pytest.fixture

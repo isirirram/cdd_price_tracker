@@ -14,7 +14,7 @@ MISSING_ID = "507f1f77bcf86cd799439011"  # valid format, not in DB
 
 @pytest.fixture
 def db():
-    return mongomock.MongoClient()["test_db"]
+    return mongomock.MongoClient(tz_aware=True)["test_db"]
 
 
 @pytest.fixture
@@ -293,3 +293,11 @@ def test_old_unsupported_products_removed_on_startup(db):
     assert db.products.find_one({"_id": old}) is None
     assert db.products.find_one({"_id": keep}) is not None
     assert db.price_history.count_documents({}) == 0
+
+
+def test_dates_are_sent_with_utc_offset(client):
+    """Browsers treat a date without an offset as local time, which showed
+    every 'Last checked' time 5.5 hours early in India."""
+    pid = client.post("/products", json=VALID).json()["id"]
+    body = client.get(f"/products/{pid}").json()  # read back from MongoDB
+    assert body["created_at"].endswith(("+00:00", "Z"))
