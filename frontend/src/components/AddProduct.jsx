@@ -39,7 +39,7 @@ function AddProduct({ onAddProduct, onCancel }) {
           <input
             type="url"
             name="product_url"
-            placeholder="Paste Amazon, Flipkart or supported product URL"
+            placeholder="Paste any supported product URL"
             required
           />
 

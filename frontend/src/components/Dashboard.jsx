@@ -87,9 +87,7 @@ function Dashboard({ onNavigate }) {
             Budget Tracker
           </span>
 
-          <span onClick={() => onNavigate("profile")}>
-            Profile
-          </span>
+         
         </nav>
       </header>
 

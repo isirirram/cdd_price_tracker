@@ -6,7 +6,6 @@ import Signup from "./components/Signup";
 import Dashboard from "./components/Dashboard";
 import ProductList from "./components/ProductList";
 import PriceHistory from "./components/PriceHistory";
-import Profile from "./components/Profile";
 import BudgetTracker from "./components/BudgetTracker";
 import ChatBot from "./components/ChatBot";
 
@@ -43,10 +42,6 @@ function App() {
 
       {currentPage === "budget" && (
         <BudgetTracker onNavigate={navigate} />
-      )}
-
-      {currentPage === "profile" && (
-        <Profile onNavigate={navigate} />
       )}
 
       {isAuthenticatedPage && <ChatBot />}

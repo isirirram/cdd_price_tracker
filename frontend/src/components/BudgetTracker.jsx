@@ -94,7 +94,6 @@ function BudgetTracker({ onNavigate }) {
           <span onClick={() => onNavigate("products")}>My Products</span>
           <span onClick={() => onNavigate("history")}>Price History</span>
           <span onClick={() => onNavigate("budget")}>Budget Tracker</span>
-          <span onClick={() => onNavigate("profile")}>Profile</span>
         </nav>
       </header>
 

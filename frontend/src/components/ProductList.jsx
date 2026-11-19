@@ -36,7 +36,10 @@ function ProductList({ onNavigate }) {
     window.addEventListener("products-changed", handleProductsChanged);
 
     return () => {
-      window.removeEventListener("products-changed", handleProductsChanged);
+      window.removeEventListener(
+        "products-changed",
+        handleProductsChanged
+      );
     };
   }, []);
 
@@ -91,6 +94,15 @@ function ProductList({ onNavigate }) {
     return matchesSearch && matchesSite;
   });
 
+  // Automatically get all available website names
+  const availableSites = [
+    ...new Set(
+      products
+        .map((product) => product.site)
+        .filter(Boolean)
+    ),
+  ].sort();
+
   if (showAddProduct) {
     return (
       <AddProduct
@@ -106,11 +118,18 @@ function ProductList({ onNavigate }) {
         <h1 className="logo">PRICE TRACKER</h1>
 
         <nav>
-          <span onClick={() => onNavigate("dashboard")}>Dashboard</span>
-          <span onClick={() => onNavigate("products")}>My Products</span>
-          <span onClick={() => onNavigate("history")}>Price History</span>
-          <span onClick={() => onNavigate("profile")}>Profile</span>
-          <span onClick={() => onNavigate("budget")}>Budget Tracker</span>
+          <span onClick={() => onNavigate("dashboard")}>
+            Dashboard
+          </span>
+          <span onClick={() => onNavigate("products")}>
+            My Products
+          </span>
+          <span onClick={() => onNavigate("history")}>
+            Price History
+          </span>
+          <span onClick={() => onNavigate("budget")}>
+            Budget Tracker
+          </span>
         </nav>
       </header>
 
@@ -135,9 +154,12 @@ function ProductList({ onNavigate }) {
             onChange={(e) => setSiteFilter(e.target.value)}
           >
             <option value="All">All Websites</option>
-            <option value="amazon">Amazon</option>
-            <option value="flipkart">Flipkart</option>
-            <option value="other">Other</option>
+
+            {availableSites.map((site) => (
+              <option key={site} value={site}>
+                {site}
+              </option>
+            ))}
           </select>
 
           <button
@@ -148,14 +170,18 @@ function ProductList({ onNavigate }) {
           </button>
         </div>
 
-        {adding && <p>Adding product and fetching details...</p>}
+        {adding && (
+          <p>Adding product and fetching details...</p>
+        )}
 
         {loading && <p>Loading your products...</p>}
 
         {error && (
           <div>
             <p>{error}</p>
-            <button onClick={fetchProducts}>Try Again</button>
+            <button onClick={fetchProducts}>
+              Try Again
+            </button>
           </div>
         )}
 
@@ -168,7 +194,9 @@ function ProductList({ onNavigate }) {
             {filteredProducts.length === 0 ? (
               <div className="welcome-section">
                 <h3>No products found</h3>
-                <p>Add a product to start tracking its price.</p>
+                <p>
+                  Add a product to start tracking its price.
+                </p>
               </div>
             ) : (
               <div className="product-grid">
@@ -184,24 +212,30 @@ function ProductList({ onNavigate }) {
                           }}
                         />
                       ) : (
-                        <span style={{ fontSize: "55px" }}>📦</span>
+                        <span style={{ fontSize: "55px" }}>
+                          📦
+                        </span>
                       )}
                     </div>
 
                     <div className="product-info">
                       <p className="product-category">
-                        {product.site?.toUpperCase() || "UNKNOWN STORE"}
+                        {product.site?.toUpperCase() ||
+                          "UNKNOWN STORE"}
                       </p>
 
                       <h3>
-                        {product.product_name || "Product name unavailable"}
+                        {product.product_name ||
+                          "Product name unavailable"}
                       </h3>
 
                       <p>
                         Current Price:{" "}
                         <strong>
                           {product.current_price != null
-                            ? `₹${Number(product.current_price).toLocaleString("en-IN")}`
+                            ? `₹${Number(
+                                product.current_price
+                              ).toLocaleString("en-IN")}`
                             : "Waiting for price check"}
                         </strong>
                       </p>
@@ -209,7 +243,10 @@ function ProductList({ onNavigate }) {
                       <p>
                         Target Price:{" "}
                         <strong>
-                          ₹{Number(product.target_price).toLocaleString("en-IN")}
+                          ₹
+                          {Number(
+                            product.target_price
+                          ).toLocaleString("en-IN")}
                         </strong>
                       </p>
 
